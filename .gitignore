@@ -1,0 +1,17 @@
+﻿# Werkdocumenten - lokaal archief
+prompts/
+
+# Bron-templates (niet de live app)
+globe-template.html
+index-referentieWickevoort.html
+
+# Apps Script-backend (gaat via copy/paste naar script.google.com)
+Code.gs
+
+# Lokale OS-rommel
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude Code werkbestanden
+.claude/
