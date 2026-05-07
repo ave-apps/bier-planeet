@@ -229,9 +229,12 @@
   .lf-kroonkurk{background:transparent!important;border:none!important;cursor:pointer}
   .lf-pin-dot{width:13px;height:13px;border-radius:50%;border:2px solid rgba(255,255,255,.45);cursor:pointer;box-shadow:0 0 6px 2px var(--glow,rgba(74,255,160,.45))}
   /* Capsule-etiket op Leaflet (DEEL 2 v3.1) — overeen met canvas-etiket op globe */
-  .lf-pin-tt{background:#241a14!important;border:0.5px solid #8a6f3a!important;border-radius:20px!important;padding:5px 20px 6px!important;font-family:'DM Serif Display',serif!important;color:#f4ecd8!important;box-shadow:0 0 6px rgba(0,0,0,.6);min-width:100px;max-width:240px;text-align:center;line-height:1.2}
+  .lf-pin-tt{background:#241a14!important;border:0.5px solid #8a6f3a!important;border-radius:20px!important;padding:5px 20px 6px!important;font-family:'DM Serif Display',serif!important;color:#f4ecd8!important;box-shadow:0 0 6px rgba(0,0,0,.6);min-width:100px;max-width:240px;text-align:center;line-height:1.2;opacity:1;transition:opacity .3s ease}
   .lf-pin-tt::before{display:none!important}
   .lf-pin-tt.has-rand{box-shadow:0 0 0 1px var(--rand-hint),0 0 6px rgba(0,0,0,.6)}
+  /* v3.3: boven zoom-drempel (uitgezoomd) verbergen we auto-labels;
+     hover/klik (vastgepind) blijft zichtbaar via .bp-tt-hover/.bp-tt-pinned. */
+  .leaflet-container.bp-no-auto-tt .lf-pin-tt:not(.bp-tt-hover):not(.bp-tt-pinned){opacity:0;pointer-events:none}
   .lf-pin-streep{display:block;height:0.5px;margin:0 0 3px;opacity:.6;width:calc(100% - 0px)}
   .lf-pin-naam{display:block;font-family:'DM Serif Display',serif;font-size:13px;color:#f4ecd8;line-height:1.15;white-space:normal;overflow:hidden;text-overflow:ellipsis}
   .lf-pin-sub{display:block;font-family:'DM Mono',monospace;font-size:9px;color:#a89878;letter-spacing:.1em;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1767,10 +1770,20 @@ const lc = document.getElementById('clx');
 const lx = lc.getContext('2d');
 let labelHitboxen = [];
 
+// v3.3 — hybride zoom-drempel:
+//  • cz <= LBL_AUTO_VOL : auto-labels op alpha 1
+//  • LBL_AUTO_VOL..LBL_AUTO_UIT : auto-labels faden uit (vlotte overgang)
+//  • cz >= LBL_AUTO_UIT : geen auto-labels; alleen hover/vastgepind
+// Drempel ~ "NL of BE schermvullend" (≈ trap 2 = cz 2.0). Boven cz 2.4 (≈ heel
+// Europa) zijn auto-labels uit en verschijnen ze enkel bij hover/klik.
+const LBL_AUTO_VOL = 2.0;
+const LBL_AUTO_UIT = 2.4;
+
 function labelSchaal() {
   const cz = camera.position.z;
   const t = Math.max(0, Math.min(1, (cz - 1.0) / (3.5 - 1.0)));
   const s = 1 - t;
+  const autoAlpha = Math.max(0, Math.min(1, (LBL_AUTO_UIT - cz) / (LBL_AUTO_UIT - LBL_AUTO_VOL)));
   return {
     naamFs: Math.round(11 + s*3),    // serif-naam ~13px op desktop
     subFs:  Math.round(8  + s*2),    // mono-sub  ~9px
@@ -1780,8 +1793,7 @@ function labelSchaal() {
     minW:   100,
     maxW:   240,
     offset: 14,                       // verbindingslijn-lengte
-    zichtbaar: cz < 2.6,
-    alpha: Math.max(0, Math.min(1, (2.6 - cz) / 0.4)),
+    autoAlpha,                        // 0..1 — alpha voor automatisch getoonde labels
   };
 }
 
@@ -1944,12 +1956,17 @@ function herteken() {
     if (punten.length > 2) boog2D.push({ bd, punten });
   });
 
-  if (!sc.zichtbaar || sc.alpha <= 0) { labelHitboxen = []; return; }
+  labelHitboxen = [];
 
+  // v3.3 — bouw kandidaten met per-item alpha:
+  //  • Hover (hovPin/hovCluster) → alpha 1, ongeacht zoom
+  //  • Vastgepind (huidigeLoc / openClusterFixed) → alpha 1, ongeacht zoom
+  //  • Rozet-pins (uitgeklapte cluster) → alpha 1, want pas zichtbaar als de
+  //    cluster expliciet is geopend; behandelen we als deel van de selectie.
+  //  • Anders → sc.autoAlpha (0 boven drempel, 1 onder drempel, fade ertussen)
   const items = [];
-  // Solo zichtbare pins én rozet-pins én cluster-stam (alleen bij hover/select) krijgen etiketten
-  const labelKandidaten = [...pins, ...rozetGrp.children];
-  labelKandidaten.forEach(mesh => {
+
+  [...pins, ...rozetGrp.children].forEach(mesh => {
     if (!mesh.userData.loc) return;
     if (!mesh.visible && !mesh.userData.isRozet) return;
     if (!mesh.userData.isRozet && !visiblePinFilter.has(mesh.userData.loc.id)) return;
@@ -1957,21 +1974,35 @@ function herteken() {
     const cam = wp.clone().project(camera);
     if (cam.z > 1.0) return;
     if (wp.clone().normalize().dot(camera.position.clone().sub(wp).normalize()) < 0.10) return;
-    items.push({ mesh, kind:'pin', x:(cam.x*.5+.5)*w, y:(-cam.y*.5+.5)*h, z:cam.z });
+    const isRozet = !!mesh.userData.isRozet;
+    const pinned  = !!(huidigeLoc && mesh.userData.loc === huidigeLoc);
+    const hovered = mesh === hovPin;
+    const altijd  = pinned || hovered || isRozet;
+    const alpha   = altijd ? 1 : sc.autoAlpha;
+    if (alpha <= 0.001) return;
+    const prio = pinned ? 2 : (hovered ? 1 : 0);
+    items.push({ mesh, kind:'pin', x:(cam.x*.5+.5)*w, y:(-cam.y*.5+.5)*h, z:cam.z, alpha, prio });
   });
-  // Cluster-stammen: alleen bij hover of geopende rozet (DEEL 2 — cluster-labels op hover/select)
+
   clusterSprites.forEach(cs => {
-    if (cs !== hovCluster && (!openCluster || openCluster.clusterSprite !== cs)) return;
     const wp = new THREE.Vector3(); cs.getWorldPosition(wp);
     const cam = wp.clone().project(camera);
     if (cam.z > 1.0) return;
-    items.push({ mesh: cs, kind:'cluster', x:(cam.x*.5+.5)*w, y:(-cam.y*.5+.5)*h, z:cam.z });
+    if (wp.clone().normalize().dot(camera.position.clone().sub(wp).normalize()) < 0.10) return;
+    const hovered = cs === hovCluster;
+    const opened  = !!(openCluster && openCluster.clusterSprite === cs);
+    const pinned  = opened && openClusterFixed; // klik = vastgepind
+    const altijd  = hovered || opened;          // hover- of klik-open: label tonen
+    const alpha   = altijd ? 1 : sc.autoAlpha;
+    if (alpha <= 0.001) return;
+    const prio = pinned ? 2 : (hovered || opened ? 1 : 0);
+    items.push({ mesh: cs, kind:'cluster', x:(cam.x*.5+.5)*w, y:(-cam.y*.5+.5)*h, z:cam.z, alpha, prio });
   });
-  items.sort((a,b) => a.z - b.z);
 
-  labelHitboxen = [];
+  // Hoogste prio eerst plaatsen (vastgepind > hover > auto), dan op camera-z.
+  items.sort((a,b) => (b.prio - a.prio) || (a.z - b.z));
 
-  items.forEach(({ mesh, kind, x, y }) => {
+  items.forEach(({ mesh, kind, x, y, alpha }) => {
     let naam, sub, catKleur, randHint;
     if (kind === 'cluster') {
       const aantal = mesh.userData.pins ? mesh.userData.pins.length : 0;
@@ -2010,7 +2041,7 @@ function herteken() {
       naam, sub, catKleur, randHint,
       naamFs: sc.naamFs, subFs: sc.subFs, pillH: sc.pillH,
       rx: sc.rx, pad: sc.pad, minW: sc.minW, maxW: sc.maxW,
-      alpha: sc.alpha, offset: sc.offset,
+      alpha, offset: sc.offset,
     });
     labelHitboxen.push({ ...hb, mesh });
   });
@@ -2250,6 +2281,7 @@ function zetKtab(t) {
 
 function openK(loc) {
   huidigeLoc = loc;
+  if (typeof setLfPinned === 'function') setLfPinned(loc);
   const kleur = kleurVoorCat(loc.cat);
   const t = typeVoorId(loc.cat);
   document.getElementById('kband').style.background = kleur;
@@ -2399,6 +2431,7 @@ function openK(loc) {
 
 function sluit() {
   huidigeLoc = null;
+  if (typeof setLfPinned === 'function') setLfPinned(null);
   document.getElementById('kaart').classList.remove('open');
   document.getElementById('hint').classList.remove('hide');
 }
@@ -3447,6 +3480,28 @@ function globeCentrum() {
   return { lat, lon };
 }
 
+// v3.3 — Leaflet auto-label-drempel: bij zoom < LF_AUTO_TT_MIN tonen we labels
+// alleen op hover/klik (vastgepind), om overlap op uitgezoomde kaart te
+// voorkomen. Default-zoom is 9, dus standaard ongewijzigd t.o.v. v3.2.
+const LF_AUTO_TT_MIN = 7;
+
+function updLfLabelMode() {
+  if (!lmap) return;
+  const z = lmap.getZoom();
+  lmap.getContainer().classList.toggle('bp-no-auto-tt', z < LF_AUTO_TT_MIN);
+}
+
+function setLfPinned(loc) {
+  if (!lfMarkers || !lfMarkers.length) return;
+  lfMarkers.forEach(m => {
+    const tt = m.getTooltip && m.getTooltip();
+    const el = tt && tt._container;
+    if (!el) return;
+    const isMatch = loc && m._bpLoc === loc;
+    el.classList.toggle('bp-tt-pinned', !!isMatch);
+  });
+}
+
 function initLeaflet() {
   if (lmap) return;
   const el = document.getElementById('lmap');
@@ -3456,6 +3511,7 @@ function initLeaflet() {
     attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
     subdomains:'abcd', maxZoom:19, r: window.devicePixelRatio > 1 ? '@2x' : '',
   }).addTo(lmap);
+  lmap.on('zoomend', updLfLabelMode);
   // Markers worden pas geplaatst zodra mapModus daadwerkelijk aan gaat —
   // anders zouden ze al meedoen tijdens de fade en dubbel renderen met de
   // Three.js sprites.
@@ -3491,18 +3547,29 @@ function plaatsLfPins() {
       permanent: true, direction: 'bottom', offset: [0, sizePx/2 + 2],
       className: ttClass,
     });
-    if (randH) {
-      // box-shadow ring kleur via CSS var op het tooltip-element zodra het bestaat
-      m.on('tooltipopen', (ev) => {
-        if (ev.tooltip && ev.tooltip._container) {
-          ev.tooltip._container.style.setProperty('--rand-hint', randH);
-        }
-      });
-    }
+    m._bpLoc = loc;
+    m.on('tooltipopen', (ev) => {
+      if (!ev.tooltip || !ev.tooltip._container) return;
+      const tEl = ev.tooltip._container;
+      if (randH) tEl.style.setProperty('--rand-hint', randH);
+      // Markeer onmiddellijk als vastgepind bij heropenen (na rebuild)
+      if (huidigeLoc && m._bpLoc === huidigeLoc) tEl.classList.add('bp-tt-pinned');
+    });
+    // v3.3 — hover toont label boven zoom-drempel
+    m.on('mouseover', () => {
+      const tt = m.getTooltip && m.getTooltip();
+      if (tt && tt._container) tt._container.classList.add('bp-tt-hover');
+    });
+    m.on('mouseout', () => {
+      const tt = m.getTooltip && m.getTooltip();
+      if (tt && tt._container) tt._container.classList.remove('bp-tt-hover');
+    });
     m.on('click', () => openK(loc));
     m.addTo(lmap);
     lfMarkers.push(m);
   });
+  updLfLabelMode();
+  if (huidigeLoc) setLfPinned(huidigeLoc);
 }
 
 function ruimLfPinsOp() {
