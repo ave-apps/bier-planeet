@@ -1771,13 +1771,15 @@ const lc = document.getElementById('clx');
 const lx = lc.getContext('2d');
 let labelHitboxen = [];
 
-// v3.3.1 — harde zoom-drempel voor individuele pin-labels (geen fade-band):
+// v3.3.2 — harde zoom-drempel voor individuele pin-labels (geen fade-band):
 //  • cz <  LBL_PIN_AUTO_DREMPEL : individuele pin-labels auto-zichtbaar
 //  • cz >= LBL_PIN_AUTO_DREMPEL : geen auto-labels op individuele pins;
 //    enkel hover/vastgepind/rozet en cluster-capsules blijven over.
+// Drempel verlaagd (1.8 → 1.4) omdat labels nog stapelden op Benelux-zicht
+// (cz ≈ 1.5–1.8). Nu alleen bij Regionaal-trap (cz 1.3) en dieper auto-labels.
 // Trap 2 (Continent / Europa-zicht) = cz 2.0 → boven drempel, dus verborgen.
 // Trap 3 (Regionaal) = cz 1.3 → onder drempel, dus zichtbaar.
-const LBL_PIN_AUTO_DREMPEL = 1.8;
+const LBL_PIN_AUTO_DREMPEL = 1.4;
 
 function labelSchaal() {
   const cz = camera.position.z;
