@@ -152,3 +152,19 @@ De seed-data is al voorgevuld voor de bekende trappisten/abdijen (Westmalle, Wes
 
 ### 5. Wijzig-knop
 In *Mijn bijdragen* staat naast elke Verwijder-knop een **Wijzig**-knop voor eigen handmatige items (Untappd-import is read-only). Klik opent het formulier-modaal met alle velden voor-ingevuld. Bij klik op **Wijzigingen opslaan** worden de niet-beschermde kolommen overschreven (id, gid, handle, untappd_user_hash en aangemaakt blijven onaangeroerd). De server weigert wijziging als de `gid` van de huidige gebruiker niet matcht met de eigenaar van de rij.
+
+---
+
+## Update naar v3.1 (bugfixes)
+
+### 1. Apps Script
+1. Open Apps Script.
+2. Vervang volledige inhoud van `Code.gs` door het nieuwe bestand.
+3. Draai eenmalig `setupCustomSheetsV3_1()`. Voegt `adres_tekst`-kolom toe aan EigenBrouwers en EigenToplocaties. Idempotent.
+4. **Implementeren → Implementaties beheren → potlood-icoon → Versie: Nieuwe versie → Implementeren.** URL blijft hetzelfde.
+
+### 2. Frontend
+Hard refresh (Ctrl+Shift+R). Verwijderen werkt weer. Etiket-labels verschijnen overal als capsules. Wijzigen van eigen pins toont nu het oorspronkelijke adres in plaats van coördinaten.
+
+### 3. Bestaande Slijterij Graaman
+De rij in EigenToplocaties heeft nog geen `adres_tekst`. Bij Wijzigen zie je daarom de coördinaten met een grijze info-melding eronder. Vul het adres-veld opnieuw in om dit te corrigeren — daarna staat het permanent in de Sheet.
