@@ -124,3 +124,31 @@ Hard refresh: linksonder verschijnt een `[DEV-MODE]`-indicator. In het Untappd-m
 - **Wis test-data** — verwijdert alle records met `gid: GID-test0001` uit de drie eigen-sheets in één call.
 
 Test-records gebruiken een vaste, reproduceerbare `untappd_user_hash` afgeleid van de string `'testbierdrinker'`, zodat ze ook bij her-import dezelfde slot bezetten.
+
+---
+
+## Update naar v3 (kroonkurk-pins, etiket-labels, Wijzig-knop)
+
+### 1. Apps Script
+1. Open Apps Script (Extensies → Apps Script in je Bier-Planeet Sheet).
+2. Vervang volledige inhoud van `Code.gs` door het nieuwe bestand.
+3. Druk `Ctrl/Cmd + S` om op te slaan.
+4. Selecteer in de functie-dropdown `setupCustomSheetsV3` en klik **Uitvoeren ▶**. Dit voegt de kolom `dominant_biertype` toe aan `Brouwerijen` en `EigenBrouwers`. Bestaande data blijft intact. Idempotent: opnieuw draaien is veilig.
+5. **Implementeren → Implementaties beheren → potlood-icoon → Versie: Nieuwe versie → Implementeren.** URL blijft hetzelfde — geen wijziging in `bier-planeet-v1.html` nodig.
+
+### 2. Frontend
+Hard refresh (Ctrl+Shift+R). Pins zien er anders uit (kroonkurk-textuur met 21 randpuntjes), labels zijn capsule-etiketten met serif-naam en mono-sublabel, en in *Mijn bijdragen* staat naast elke Verwijder-knop een **Wijzig**-knop.
+
+### 3. Optioneel: vul biertype-velden
+Open de Sheet, ga naar tabblad `Brouwerijen` of `EigenBrouwers`. Vul de nieuwe kolom `dominant_biertype` in voor brouwerijen waar dit zinvol is. Geldige waarden: `stout`, `porter`, `imperial-stout`, `lambic`, `geuze`, `kriek`, `witbier`, `witte`, `ipa`, `dipa`, `pale-ale`, `tripel`, `quadrupel`, `trappist`, `pilsner`, `lager`, `helles`, `saison`, `farmhouse`. Lege waarde = geen rand-hint.
+
+De seed-data is al voorgevuld voor de bekende trappisten/abdijen (Westmalle, Westvleteren, Rochefort, Chimay, Orval, Achel, La Trappe → `trappist`), De Molen → `imperial-stout`, Jopen en 't IJ → `tripel`, Uiltje → `ipa`. Bij verse `setupSheets()`-installs zie je deze waarden direct; bij upgrade naar v3 op een bestaande Sheet blijven oude rijen leeg en kun je ze handmatig aanvullen.
+
+### 4. Rand-hints — wat zie je?
+- **Evenementen** (festivals, proeverijen): de pin krijgt een buitenring in de seizoens-kleur op basis van de `start`-datum (lente=hopgroen, zomer=gerstgeel, herfst=bok-aarde, winter=donker paars).
+- **Brouwerijen** (regulier of eigen) met ingevuld `dominant_biertype`: de pin krijgt een ring in de bijbehorende biertype-kleur (trappist=warm amber, lambic=wijnrood, ipa=hoppig groengeel, …).
+- Pins zonder bekende hint krijgen géén ring — afwezigheid is ook een keuze.
+- Het bijbehorende etiket-label krijgt dezelfde rand-hint als buitenring, zodat pin en etiket visueel bij elkaar horen.
+
+### 5. Wijzig-knop
+In *Mijn bijdragen* staat naast elke Verwijder-knop een **Wijzig**-knop voor eigen handmatige items (Untappd-import is read-only). Klik opent het formulier-modaal met alle velden voor-ingevuld. Bij klik op **Wijzigingen opslaan** worden de niet-beschermde kolommen overschreven (id, gid, handle, untappd_user_hash en aangemaakt blijven onaangeroerd). De server weigert wijziging als de `gid` van de huidige gebruiker niet matcht met de eigenaar van de rij.
