@@ -2606,6 +2606,8 @@ function sluitModaal(id) {
   // Wijzig-modus met dirty form: vraag bevestiging
   if (id === 'm-eigen' && _wijzigCtx && eigenModaalIsDirty()) {
     if (!confirm('Wijzigingen niet opgeslagen. Toch sluiten?')) return;
+    // Toch sluiten: gebruiker kiest expliciet voor weggooien — wis ook draft.
+    if (_wijzigCtx.tab) wisDraft(_wijzigCtx.tab);
   }
   sluitModaalGeforceerd(id);
 }
@@ -2839,6 +2841,7 @@ async function opslaanTabA() {
     const r = await postNaarBackend('wijzig_eigen_brouwer', { id: _wijzigCtx.id, ...payload });
     if (!r.ok) throw new Error(r.fout || 'onbekend');
     toon('Wijziging opgeslagen', 'ok');
+    wisDraft('a');
     _wijzigCtx = null;
     sluitModaalGeforceerd('m-eigen');
     await herlaadEnHertekenen();
@@ -2883,6 +2886,7 @@ async function opslaanTabB() {
     const r = await postNaarBackend('wijzig_eigen_toplocatie', { id: _wijzigCtx.id, ...payload });
     if (!r.ok) throw new Error(r.fout || 'onbekend');
     toon('Wijziging opgeslagen', 'ok');
+    wisDraft('b');
     _wijzigCtx = null;
     sluitModaalGeforceerd('m-eigen');
     await herlaadEnHertekenen();
@@ -2923,6 +2927,7 @@ async function opslaanTabC() {
     const r = await postNaarBackend('wijzig_eigen_bijdrage', { id: _wijzigCtx.id, ...payload });
     if (!r.ok) throw new Error(r.fout || 'onbekend');
     toon('Wijziging opgeslagen', 'ok');
+    wisDraft('c');
     _wijzigCtx = null;
     sluitModaalGeforceerd('m-eigen');
     await herlaadEnHertekenen();
@@ -2989,6 +2994,9 @@ async function verwijderEigen(id) {
   const r = await postNaarBackend('verwijder', { id });
   if (!r.ok) { toon('Verwijderen mislukt: ' + (r.fout || ''), 'err'); return; }
   toon('Verwijderd', 'ok');
+  // Geen koppeling tussen verwijderde pin en bijbehorende draft — wis alle drie
+  // om verrassende voor-invul na verwijdering te voorkomen.
+  wisDraft('a'); wisDraft('b'); wisDraft('c');
   await herlaadEnHertekenen();
 }
 
