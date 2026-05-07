@@ -1771,30 +1771,29 @@ const lc = document.getElementById('clx');
 const lx = lc.getContext('2d');
 let labelHitboxen = [];
 
-// v3.3.2 — harde zoom-drempel voor individuele pin-labels (geen fade-band):
+// v3.4 — harde zoom-drempel voor individuele pin-labels (geen fade-band):
 //  • cz <  LBL_PIN_AUTO_DREMPEL : individuele pin-labels auto-zichtbaar
 //  • cz >= LBL_PIN_AUTO_DREMPEL : geen auto-labels op individuele pins;
 //    enkel hover/vastgepind/rozet en cluster-capsules blijven over.
-// Drempel verlaagd (1.8 → 1.4) omdat labels nog stapelden op Benelux-zicht
-// (cz ≈ 1.5–1.8). Nu alleen bij Regionaal-trap (cz 1.3) en dieper auto-labels.
-// Trap 2 (Continent / Europa-zicht) = cz 2.0 → boven drempel, dus verborgen.
-// Trap 3 (Regionaal) = cz 1.3 → onder drempel, dus zichtbaar.
-const LBL_PIN_AUTO_DREMPEL = 1.4;
+// Drempel naar 1.3: Trap 3 (Regionaal, cz 1.3) valt nu óók in de
+// "geen auto-labels"-categorie. Auto-labels pas bij dieper inzoomen
+// (mouse-wheel voorbij Trap 3, cz < 1.3).
+const LBL_PIN_AUTO_DREMPEL = 1.3;
 
 function labelSchaal() {
   const cz = camera.position.z;
-  const t = Math.max(0, Math.min(1, (cz - 1.0) / (3.5 - 1.0)));
-  const s = 1 - t;
   const pinAutoOn = cz < LBL_PIN_AUTO_DREMPEL;
+  // v3.4 — vaste, compacte capsule-afmetingen (geen schaling met zoom).
+  // Eén etiket-stijl voor auto, hover, vastgepind en cluster.
   return {
-    naamFs: Math.round(11 + s*3),    // serif-naam ~13px op desktop
-    subFs:  Math.round(8  + s*2),    // mono-sub  ~9px
-    pillH:  Math.round(34 + s*8),    // ~40px
-    rx:     20,
-    pad:    20,                       // 20px aan elke kant
-    minW:   100,
-    maxW:   240,
-    offset: 14,                       // verbindingslijn-lengte
+    naamFs: 11,                       // DM Serif Display
+    subFs:  8,                        // DM Mono
+    pillH:  30,                       // compacter (was 34–42)
+    rx:     14,                       // minder rond
+    pad:    14,                       // horizontale binnenrand
+    minW:   80,
+    maxW:   180,
+    offset: 10,                       // verbindingslijn-lengte
     pinAutoOn,                        // boolean — auto-labels op individuele pins?
   };
 }
@@ -1813,7 +1812,7 @@ function clusterPlaats(cluster) {
 
 // Tekent één capsule-etiket op canvas. Geeft hitbox terug.
 function tekenEtiket(ctx, opts) {
-  const { x, y, dirRight, naam, sub, catKleur, randHint, naamFs, subFs, pillH, rx, pad, minW, maxW, alpha, offset } = opts;
+  const { x, y, dirRight, naam, sub, randHint, naamFs, subFs, pillH, rx, pad, minW, maxW, alpha, offset } = opts;
   // Naam-truncatie tot maxW
   ctx.font = `${naamFs}px 'DM Serif Display', serif`;
   let naamTekst = naam || '';
@@ -1859,7 +1858,7 @@ function tekenEtiket(ctx, opts) {
     ctx.strokeStyle = randHint;
     ctx.lineWidth = 0.8;
     if (ctx.roundRect) {
-      ctx.beginPath(); ctx.roundRect(ex - 2, ey - 2, breedte + 4, pillH + 4, 22); ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(ex - 2, ey - 2, breedte + 4, pillH + 4, rx + 2); ctx.stroke();
     }
     ctx.restore();
   }
@@ -1876,16 +1875,7 @@ function tekenEtiket(ctx, opts) {
   ctx.fill(); ctx.stroke();
   ctx.restore();
 
-  // Categorie-streep boven naam (binnen-marge ~20px)
-  ctx.save();
-  ctx.globalAlpha = 0.6 * alpha;
-  ctx.strokeStyle = catKleur;
-  ctx.lineWidth = 0.5;
-  ctx.beginPath();
-  ctx.moveTo(ex + 20, ey + 8);
-  ctx.lineTo(ex + breedte - 20, ey + 8);
-  ctx.stroke();
-  ctx.restore();
+  // v3.4 — categorie-streep verwijderd (catKleur leeft nu alleen in randHint).
 
   // Naam — DM Serif Display, kleur #f4ecd8
   ctx.save();
@@ -1894,7 +1884,7 @@ function tekenEtiket(ctx, opts) {
   ctx.font = `${naamFs}px 'DM Serif Display', serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
-  const naamY = ey + 8 + naamFs + 4;
+  const naamY = ey + 4 + naamFs;       // 4px boven-padding, baseline op naamFs
   ctx.fillText(naamTekst, ex + breedte/2, naamY);
   ctx.restore();
 
@@ -2000,18 +1990,16 @@ function herteken() {
   items.sort((a,b) => (b.prio - a.prio) || (a.z - b.z));
 
   items.forEach(({ mesh, kind, x, y, alpha }) => {
-    let naam, sub, catKleur, randHint;
+    let naam, sub, randHint;
     if (kind === 'cluster') {
       const aantal = mesh.userData.pins ? mesh.userData.pins.length : 0;
       naam = clusterPlaats(mesh) || ('Cluster (' + aantal + ')');
       sub  = aantal + ' pins';
-      catKleur = '#d4943a';
       randHint = null;
     } else {
       const loc = mesh.userData.loc;
       naam = loc.naam || '';
       sub  = sublabelVoor(loc);
-      catKleur = mesh.userData.kl || kleurVoorCat(loc.cat);
       randHint = mesh.userData.randHint || null;
     }
 
@@ -2035,7 +2023,7 @@ function herteken() {
 
     const hb = tekenEtiket(lx, {
       x, y, dirRight: placed.dirRight,
-      naam, sub, catKleur, randHint,
+      naam, sub, randHint,
       naamFs: sc.naamFs, subFs: sc.subFs, pillH: sc.pillH,
       rx: sc.rx, pad: sc.pad, minW: sc.minW, maxW: sc.maxW,
       alpha, offset: sc.offset,
