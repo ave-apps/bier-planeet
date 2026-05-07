@@ -109,6 +109,8 @@
   .kbij-acties{display:flex;gap:6px;margin-top:6px}
   .kbij-acties button{padding:2px 7px;border:1px solid var(--brd);background:transparent;color:var(--dim);border-radius:4px;font-family:'DM Mono',monospace;font-size:.55rem;cursor:pointer}
   .kbij-acties button:hover{color:var(--acc);border-color:var(--acc)}
+  .kbij-knop{padding:2px 7px;border:1px solid var(--brd);background:transparent;color:var(--dim);border-radius:4px;font-family:'DM Mono',monospace;font-size:.55rem;cursor:pointer;margin-left:4px}
+  .kbij-knop:hover{color:var(--acc);border-color:var(--acc)}
   .kbij-melden{font-size:.55rem;color:var(--dim);opacity:.6;text-decoration:none}
   .kbij-melden:hover{color:var(--acc);opacity:1}
 
@@ -224,6 +226,7 @@
   .leaflet-tile-pane{filter:brightness(1.4) saturate(0.85) contrast(1.05) hue-rotate(-15deg) sepia(0.15)}
   html.thema-middernacht .leaflet-tile-pane{filter:brightness(1.75) saturate(1.15) contrast(1.05)}
   .lf-pin-label{background:rgba(4,6,14,.92);border:1px solid;border-radius:5px;padding:3px 8px 4px;font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;cursor:pointer;pointer-events:auto;overflow:hidden;box-sizing:border-box}
+  .lf-kroonkurk{background:transparent!important;border:none!important;cursor:pointer}
   .lf-pin-dot{width:13px;height:13px;border-radius:50%;border:2px solid rgba(255,255,255,.45);cursor:pointer;box-shadow:0 0 6px 2px var(--glow,rgba(74,255,160,.45))}
   .lf-pin-tt{background:rgba(4,6,14,.92)!important;border:1px solid rgba(74,158,255,.55)!important;border-radius:5px!important;padding:2px 7px 3px!important;font-family:'DM Mono',monospace!important;font-size:10px!important;color:#cfe3ff!important;box-shadow:0 0 4px rgba(0,0,0,.6)}
   .lf-pin-tt::before{display:none!important}
@@ -658,6 +661,35 @@ function kleurInt(hex) { return parseInt(hex.replace('#',''), 16); }
 function kleurHex3(hex) { const h = hex.replace('#',''); return `${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)}`; }
 function esc(s) { if (s == null) return ''; const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
 
+function kortDatum(s) {
+  if (!s) return '';
+  const d = new Date(s);
+  if (isNaN(+d)) return '';
+  return d.toLocaleDateString('nl-NL', { day:'numeric', month:'short' });
+}
+function _saamvoeg(parts, sep) {
+  return parts.filter(x => x != null && String(x).trim() !== '').join(sep);
+}
+function sublabelVoor(loc) {
+  switch (loc.cat) {
+    case 'brouwerij':
+      if (loc.dominant_biertype && loc.land) return _saamvoeg([loc.dominant_biertype, loc.land], ' · ');
+      if (loc.land) return _saamvoeg(['brouwerij', loc.land], ' · ');
+      return '';
+    case 'thuisbrouwer':    return loc.land ? _saamvoeg(['thuisbrouwer', loc.land], ' · ') : '';
+    case 'proeverij':       return loc.start ? _saamvoeg(['proeverij', kortDatum(loc.start)], ' · ') : '';
+    case 'festival':        return loc.start ? _saamvoeg(['festival', kortDatum(loc.start)], ' · ') : '';
+    case 'winkel':          return _saamvoeg([loc.beschr, loc.land], ' · ');
+    case 'historisch':      return _saamvoeg([loc.periode, loc.land], ' · ');
+    case 'redactie':        return loc.land ? _saamvoeg(['vakblad', loc.land], ' · ') : '';
+    case 'vergelijk':       return 'sommelier-platform';
+    case 'eigen_brouwer':   return loc.land ? _saamvoeg(['niche', loc.land], ' · ') : '';
+    case 'eigen_toplocatie':return _saamvoeg([loc.type, loc.land], ' · ');
+    case 'untappd':         return loc.taps ? _saamvoeg([loc.taps + '× bezocht', loc.land], ' · ') : (loc.land || '');
+  }
+  return '';
+}
+
 function ldVoortgang(pct, stap) {
   document.getElementById('ldprog').style.width = pct + '%';
   document.getElementById('ldstap').textContent = stap;
@@ -749,6 +781,7 @@ function bouwLOCenVBN() {
     stad:b.land || '', land:b.land,
     merk_id:b.merk_id, moederbedrijf_id:b.moederbedrijf_id,
     opgericht:b.opgericht, protobrouwsel_id:b.protobrouwsel_id,
+    dominant_biertype: b.dominant_biertype || null,
   }));
   (DATA.evenementen || []).forEach(ev => push({
     id:ev.id, naam:ev.naam, lat:+ev.lat, lon:+ev.lng,
@@ -794,6 +827,7 @@ function bouwLOCenVBN() {
     handle: b.handle, gid: b.gid,
     sinds: b.sinds, ontdekt_via: b.ontdekt_via,
     bron: b.bron, untappd_user_hash: b.untappd_user_hash || null,
+    dominant_biertype: b.dominant_biertype || null,
     eigen: true,
   }));
   // Eigen toplocaties
@@ -802,6 +836,7 @@ function bouwLOCenVBN() {
     cat: t.bron === 'untappd' ? 'untappd' : 'eigen_toplocatie',
     schaal:'lokaal',
     beschr: t.beschrijving || '', url: t.url || '',
+    land: t.land,
     handle: t.handle, gid: t.gid, type: t.type,
     sterren: +t.sterren || 0, taps: +t.taps || 0, fles_blik: +t.fles_blik || 0,
     specialiteit: t.specialiteit,
@@ -996,32 +1031,124 @@ function maakNLDetail() {
 async function laadGeoFallback() { ldVoortgang(80, 'Basisdata (offline)…'); maakNLDetail(); ldVoortgang(100, 'Klaar'); }
 
 // ============================================================================
-// PIN-/CLUSTER-TEXTURES (Wickevoort-stijl: canvas-textures op sprite-materialen)
+// RAND-HINTS — biertype voor brouwers, seizoen voor evenementen (DEEL 3)
 // ============================================================================
+const BIERTYPE_RAND = {
+  stout:'#3a2418', porter:'#3a2418', 'imperial-stout':'#3a2418',
+  lambic:'#8a2a3a', geuze:'#8a2a3a', kriek:'#8a2a3a',
+  witbier:'#c8b850', witte:'#c8b850',
+  ipa:'#7a9a3a', dipa:'#7a9a3a', 'pale-ale':'#7a9a3a',
+  tripel:'#c87a3a', quadrupel:'#c87a3a', trappist:'#c87a3a',
+  pilsner:'#e8d090', lager:'#e8d090', helles:'#e8d090',
+  saison:'#b8a050', farmhouse:'#b8a050',
+};
+function randHintVoor(loc) {
+  if (loc.cat === 'festival' || loc.cat === 'proeverij') {
+    if (!loc.start) return null;
+    const d = new Date(loc.start);
+    if (isNaN(+d)) return null;
+    const m = d.getMonth(); // 0-11
+    if (m >= 2 && m <= 4)  return '#a8c850';  // lente — hopgroen
+    if (m >= 5 && m <= 7)  return '#e8c060';  // zomer — gerstgeel
+    if (m >= 8 && m <= 10) return '#8a4a1a';  // herfst — bok-aarde
+    return '#5a3a6a';                          // winter — donker paars
+  }
+  if (loc.cat === 'brouwerij' || loc.cat === 'eigen_brouwer' || loc.cat === 'thuisbrouwer') {
+    const t = (loc.dominant_biertype || '').toLowerCase().trim();
+    return BIERTYPE_RAND[t] || null;
+  }
+  return null;
+}
+
+// ============================================================================
+// PIN-/CLUSTER-TEXTURES — kroonkurk-cirkels (DEEL 1)
+// ============================================================================
+// Maatvoering schaal-relatief; canvas-eenheden 0..size, mainR is hoofdcirkel
+const SCHAAL_HOOFDR = { lokaal:0.62, subregionaal:0.74, regionaal:0.85, landelijk:1.00 };
 const pinTextures = {};
-function makePinTexture(hexKleur, schaal) {
-  const key = hexKleur + '_' + schaal;
+
+// Tekent kroonkurk-cirkel in een 2D-context met centrum (cx,cy), hoofdradius pinR
+// kleur = vulkleur hoofdcirkel. randHint = optionele buitenring kleur of null.
+function tekenKroonkurk(ctx, cx, cy, pinR, kleur, randHint) {
+  // Optionele rand-hint (buitenste laag)
+  if (randHint) {
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = randHint;
+    ctx.lineWidth = pinR * 0.18;
+    ctx.beginPath();
+    ctx.arc(cx, cy, pinR * 1.30, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  // 21 satelliet-puntjes op ring r = pinR*1.13, elk r = pinR*0.13
+  const satR = pinR * 0.13;
+  const satRing = pinR * 1.13;
+  ctx.fillStyle = kleur;
+  for (let i = 0; i < 21; i++) {
+    const a = (i / 21) * Math.PI * 2 - Math.PI / 2;
+    const sx = cx + Math.cos(a) * satRing;
+    const sy = cy + Math.sin(a) * satRing;
+    ctx.beginPath();
+    ctx.arc(sx, sy, satR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Hoofdcirkel
+  ctx.fillStyle = kleur;
+  ctx.beginPath();
+  ctx.arc(cx, cy, pinR, 0, Math.PI * 2);
+  ctx.fill();
+  // Donkere ring rondom hoofdcirkel
+  ctx.strokeStyle = '#1a1410';
+  ctx.lineWidth = pinR * 0.08;
+  ctx.beginPath();
+  ctx.arc(cx, cy, pinR, 0, Math.PI * 2);
+  ctx.stroke();
+  // Centrum-punt
+  ctx.fillStyle = '#1a1410';
+  ctx.beginPath();
+  ctx.arc(cx, cy, pinR * 0.32, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function makePinTexture(hexKleur, schaal, randHint) {
+  const key = hexKleur + '_' + schaal + '_' + (randHint || 'x');
   if (pinTextures[key]) return pinTextures[key];
   const size = 64, cv = document.createElement('canvas');
   cv.width = cv.height = size;
   const cx = cv.getContext('2d'), c = size/2;
-  // Buitenring (halo)
-  const haloR = size * (schaal === 'landelijk' ? 0.46 : schaal === 'regionaal' ? 0.42 : schaal === 'subregionaal' ? 0.38 : 0.34);
-  const dotR = haloR * 0.6;
-  const grad = cx.createRadialGradient(c, c, dotR*0.4, c, c, haloR);
-  grad.addColorStop(0, hexKleur);
-  grad.addColorStop(0.55, hexKleur);
-  grad.addColorStop(1, hexKleur + '00');
-  cx.fillStyle = grad;
-  cx.beginPath(); cx.arc(c, c, haloR, 0, Math.PI*2); cx.fill();
-  // Kerndot
-  cx.fillStyle = hexKleur;
-  cx.beginPath(); cx.arc(c, c, dotR, 0, Math.PI*2); cx.fill();
-  cx.strokeStyle = getCSS('--bg') || '#1a1410'; cx.lineWidth = size*0.05;
-  cx.beginPath(); cx.arc(c, c, dotR, 0, Math.PI*2); cx.stroke();
+  // Hoofdradius: schaalfactor × basis (basis = 22 zodat satellieten + rand-hint passen in 32px)
+  const f = SCHAAL_HOOFDR[schaal] || 0.85;
+  const pinR = 21 * f;
+  tekenKroonkurk(cx, c, c, pinR, hexKleur, randHint);
   const tex = new THREE.CanvasTexture(cv);
   tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter;
   pinTextures[key] = tex; return tex;
+}
+
+// SVG-versie voor Leaflet-divIcon (zelfde geometrie, andere doelmarkup)
+function kroonkurkSVG(hexKleur, schaal, randHint, sizePx) {
+  const f = SCHAAL_HOOFDR[schaal] || 0.85;
+  const size = sizePx || Math.round(28 * f + 10);
+  const c = size / 2;
+  const pinR = 11 * f;
+  const satR = pinR * 0.13;
+  const satRing = pinR * 1.13;
+  let satMarkup = '';
+  for (let i = 0; i < 21; i++) {
+    const a = (i / 21) * Math.PI * 2 - Math.PI / 2;
+    const sx = (c + Math.cos(a) * satRing).toFixed(2);
+    const sy = (c + Math.sin(a) * satRing).toFixed(2);
+    satMarkup += `<circle cx="${sx}" cy="${sy}" r="${satR.toFixed(2)}" fill="${hexKleur}"/>`;
+  }
+  const randMarkup = randHint
+    ? `<circle cx="${c}" cy="${c}" r="${(pinR * 1.30).toFixed(2)}" fill="none" stroke="${randHint}" stroke-width="${(pinR * 0.18).toFixed(2)}" opacity="0.5"/>`
+    : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">
+    ${randMarkup}${satMarkup}
+    <circle cx="${c}" cy="${c}" r="${pinR.toFixed(2)}" fill="${hexKleur}" stroke="#1a1410" stroke-width="${(pinR * 0.08).toFixed(2)}"/>
+    <circle cx="${c}" cy="${c}" r="${(pinR * 0.32).toFixed(2)}" fill="#1a1410"/>
+  </svg>`;
 }
 
 const clusterTextures = {};
@@ -1096,7 +1223,8 @@ function bouwPins() {
   LOC.forEach(loc => {
     if (loc._verborgenInV1) return; // ingrediëntleveranciers in v1 onzichtbaar
     const kleurH = kleurVoorCat(loc.cat);
-    const tex = makePinTexture(kleurH, loc.schaal || 'regionaal');
+    const randH = randHintVoor(loc);
+    const tex = makePinTexture(kleurH, loc.schaal || 'regionaal', randH);
     const mat = new THREE.SpriteMaterial({ map:tex, transparent:true, depthWrite:false });
     const sprite = new THREE.Sprite(mat);
     const basisPos = ll2v(loc.lat, loc.lon);
@@ -1106,7 +1234,7 @@ function bouwPins() {
     const schaalFactor = ({ lokaal:0.78, subregionaal:0.92, regionaal:1.08, landelijk:1.28 })[loc.schaal] || 1.0;
     const baseScale = 0.018 * schaalFactor * (loc.cat === 'festival' ? 1.10 : 1);
     sprite.scale.set(baseScale, baseScale, 1);
-    sprite.userData = { loc, kl:kleurH, basisPos:basisPos.clone(), baseScale, isPin:true };
+    sprite.userData = { loc, kl:kleurH, randHint:randH, basisPos:basisPos.clone(), baseScale, isPin:true };
     pinGrp.add(sprite);
     pins.push(sprite);
 
@@ -1637,13 +1765,132 @@ function labelSchaal() {
   const t = Math.max(0, Math.min(1, (cz - 1.0) / (3.5 - 1.0)));
   const s = 1 - t;
   return {
-    fs: Math.round(9 + s*7), px: Math.round(4 + s*5),
-    lw: 0.5 + s*1.0, lijnLw: 0.4 + s*0.8,
-    offset: Math.round(13 + s*9),
+    naamFs: Math.round(11 + s*3),    // serif-naam ~13px op desktop
+    subFs:  Math.round(8  + s*2),    // mono-sub  ~9px
+    pillH:  Math.round(34 + s*8),    // ~40px
+    rx:     20,
+    pad:    20,                       // 20px aan elke kant
+    minW:   100,
+    maxW:   240,
+    offset: 14,                       // verbindingslijn-lengte
     zichtbaar: cz < 2.6,
     alpha: Math.max(0, Math.min(1, (2.6 - cz) / 0.4)),
-    borderAlpha: Math.round((0.32 + s*0.40) * 255).toString(16).padStart(2,'0'),
   };
+}
+
+// Cluster-stam-stad bepalen — pakt het meest voorkomende land/eerste pin als simpele approx
+function clusterPlaats(cluster) {
+  const arr = cluster.userData && cluster.userData.pins ? cluster.userData.pins : [];
+  if (!arr.length) return '';
+  // Pak land van de meeste pins
+  const tel = {};
+  arr.forEach(p => { const k = p.land || p.stad || ''; if (k) tel[k] = (tel[k]||0)+1; });
+  const items = Object.entries(tel).sort((a,b) => b[1]-a[1]);
+  if (items.length) return items[0][0];
+  return arr[0].naam || '';
+}
+
+// Tekent één capsule-etiket op canvas. Geeft hitbox terug.
+function tekenEtiket(ctx, opts) {
+  const { x, y, dirRight, naam, sub, catKleur, randHint, naamFs, subFs, pillH, rx, pad, minW, maxW, alpha, offset } = opts;
+  // Naam-truncatie tot maxW
+  ctx.font = `${naamFs}px 'DM Serif Display', serif`;
+  let naamTekst = naam || '';
+  let naamW = ctx.measureText(naamTekst).width;
+  ctx.font = `${subFs}px 'DM Mono', monospace`;
+  let subW = sub ? ctx.measureText(sub).width : 0;
+  let breedte = Math.max(minW, Math.min(maxW, Math.max(naamW, subW) + pad*2));
+  // Truncate naam bij overschrijding
+  if (naamW > breedte - pad*2) {
+    ctx.font = `${naamFs}px 'DM Serif Display', serif`;
+    while (naamTekst.length > 1 && ctx.measureText(naamTekst + '…').width > breedte - pad*2) {
+      naamTekst = naamTekst.slice(0, -1);
+    }
+    naamTekst = naamTekst + '…';
+  }
+  if (subW > breedte - pad*2) {
+    ctx.font = `${subFs}px 'DM Mono', monospace`;
+    while (sub.length > 1 && ctx.measureText(sub + '…').width > breedte - pad*2) {
+      sub = sub.slice(0, -1);
+    }
+    sub = sub + '…';
+  }
+
+  // Plaatsing — links of rechts van pin
+  const ex = dirRight ? x + offset : x - offset - breedte;
+  const ey = y - pillH/2;
+
+  // Verbindingslijn
+  ctx.save();
+  ctx.globalAlpha = 0.6 * alpha;
+  ctx.strokeStyle = '#8a6f3a';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  if (dirRight) { ctx.moveTo(x, y); ctx.lineTo(ex, y); }
+  else          { ctx.moveTo(x, y); ctx.lineTo(ex + breedte, y); }
+  ctx.stroke();
+  ctx.restore();
+
+  // Buitenring (alleen bij rand-hint)
+  if (randHint) {
+    ctx.save();
+    ctx.globalAlpha = 0.5 * alpha;
+    ctx.strokeStyle = randHint;
+    ctx.lineWidth = 0.8;
+    if (ctx.roundRect) {
+      ctx.beginPath(); ctx.roundRect(ex - 2, ey - 2, breedte + 4, pillH + 4, 22); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Hoofd-etiket
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = '#241a14';
+  ctx.strokeStyle = '#8a6f3a';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(ex, ey, breedte, pillH, rx);
+  else ctx.rect(ex, ey, breedte, pillH);
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // Categorie-streep boven naam (binnen-marge ~20px)
+  ctx.save();
+  ctx.globalAlpha = 0.6 * alpha;
+  ctx.strokeStyle = catKleur;
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(ex + 20, ey + 8);
+  ctx.lineTo(ex + breedte - 20, ey + 8);
+  ctx.stroke();
+  ctx.restore();
+
+  // Naam — DM Serif Display, kleur #f4ecd8
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = '#f4ecd8';
+  ctx.font = `${naamFs}px 'DM Serif Display', serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  const naamY = ey + 8 + naamFs + 4;
+  ctx.fillText(naamTekst, ex + breedte/2, naamY);
+  ctx.restore();
+
+  // Sublabel — DM Mono, kleur #a89878
+  if (sub) {
+    ctx.save();
+    ctx.globalAlpha = 0.85 * alpha;
+    ctx.fillStyle = '#a89878';
+    ctx.font = `${subFs}px 'DM Mono', monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    // letter-spacing benadering: niet native in canvas; teken iets meer rechts
+    ctx.fillText(sub, ex + breedte/2, naamY + subFs + 4);
+    ctx.restore();
+  }
+
+  return { x1: ex - 2, y1: ey - 2, x2: ex + breedte + 2, y2: ey + pillH + 2 };
 }
 
 function herteken() {
@@ -1693,7 +1940,7 @@ function herteken() {
   if (!sc.zichtbaar || sc.alpha <= 0) { labelHitboxen = []; return; }
 
   const items = [];
-  // Solo zichtbare pins én rozet-pins krijgen labels
+  // Solo zichtbare pins én rozet-pins én cluster-stam (alleen bij hover/select) krijgen etiketten
   const labelKandidaten = [...pins, ...rozetGrp.children];
   labelKandidaten.forEach(mesh => {
     if (!mesh.userData.loc) return;
@@ -1703,68 +1950,62 @@ function herteken() {
     const cam = wp.clone().project(camera);
     if (cam.z > 1.0) return;
     if (wp.clone().normalize().dot(camera.position.clone().sub(wp).normalize()) < 0.10) return;
-    items.push({ mesh, x:(cam.x*.5+.5)*w, y:(-cam.y*.5+.5)*h, z:cam.z });
+    items.push({ mesh, kind:'pin', x:(cam.x*.5+.5)*w, y:(-cam.y*.5+.5)*h, z:cam.z });
+  });
+  // Cluster-stammen: alleen bij hover of geopende rozet (DEEL 2 — cluster-labels op hover/select)
+  clusterSprites.forEach(cs => {
+    if (cs !== hovCluster && (!openCluster || openCluster.clusterSprite !== cs)) return;
+    const wp = new THREE.Vector3(); cs.getWorldPosition(wp);
+    const cam = wp.clone().project(camera);
+    if (cam.z > 1.0) return;
+    items.push({ mesh: cs, kind:'cluster', x:(cam.x*.5+.5)*w, y:(-cam.y*.5+.5)*h, z:cam.z });
   });
   items.sort((a,b) => a.z - b.z);
 
   labelHitboxen = [];
-  const pillR = Math.max(2, sc.px*0.6);
 
-  items.forEach(({ mesh, x, y }) => {
-    const loc = mesh.userData.loc;
-    const kleur = mesh.userData.kl || kleurVoorCat(loc.cat);
-    lx.font = `${sc.fs}px DM Mono,monospace`;
-    const naam = loc.naam.split('—')[0].split('(')[0].trim();
-    const woorden = naam.split(' ');
-    const kort = woorden[0];
-    const tw = lx.measureText(kort).width;
-    const heeftSub = woorden.length > 1;
-    const subFs = Math.max(7, sc.fs - 2);
-    const pillH = sc.fs + sc.px*1.4 + (heeftSub ? subFs + 3 : 0);
-    const off = sc.offset, hitPad = 4;
+  items.forEach(({ mesh, kind, x, y }) => {
+    let naam, sub, catKleur, randHint;
+    if (kind === 'cluster') {
+      const aantal = mesh.userData.pins ? mesh.userData.pins.length : 0;
+      naam = clusterPlaats(mesh) || ('Cluster (' + aantal + ')');
+      sub  = aantal + ' pins';
+      catKleur = '#d4943a';
+      randHint = null;
+    } else {
+      const loc = mesh.userData.loc;
+      naam = loc.naam || '';
+      sub  = sublabelVoor(loc);
+      catKleur = mesh.userData.kl || kleurVoorCat(loc.cat);
+      randHint = mesh.userData.randHint || null;
+    }
 
-    // Probeer rechts, anders links/boven
-    function rxy(dir) {
-      switch (dir) {
-        case 'no': return [x + off*0.7, y - pillH*1.2];
-        case 'n':  return [x - tw/2 - sc.px, y - pillH*1.6];
-        case 'w':  return [x - off - tw - sc.px*2, y - pillH/2];
-        case 'z':  return [x - tw/2 - sc.px, y + off*0.7];
-        default:   return [x + off, y - pillH/2];
+    // Probeer rechts, dan links — kies eerste positie zonder overlap
+    let placed = null;
+    for (const dirRight of [true, false]) {
+      // Probe-meet zonder canvas-state-mutatie
+      lx.font = `${sc.naamFs}px 'DM Serif Display', serif`;
+      const naamW = lx.measureText(naam).width;
+      lx.font = `${sc.subFs}px 'DM Mono', monospace`;
+      const subW = sub ? lx.measureText(sub).width : 0;
+      const breedte = Math.max(sc.minW, Math.min(sc.maxW, Math.max(naamW, subW) + sc.pad*2));
+      const ex = dirRight ? x + sc.offset : x - sc.offset - breedte;
+      const ey = y - sc.pillH/2;
+      const vak = { x1: ex - 4, y1: ey - 4, x2: ex + breedte + 4, y2: ey + sc.pillH + 4 };
+      if (!labelHitboxen.some(b => !(vak.x2 < b.x1 || vak.x1 > b.x2 || vak.y2 < b.y1 || vak.y1 > b.y2))) {
+        placed = { dirRight, vak }; break;
       }
     }
-    const altDirs = ['o','no','n','w','z'];
-    let lbx, lby, vak, geplaatst = false;
-    for (const dir of altDirs) {
-      [lbx, lby] = rxy(dir);
-      vak = { x1:lbx-sc.px-hitPad, y1:lby-hitPad, x2:lbx+tw+sc.px+hitPad, y2:lby+pillH+hitPad };
-      if (!labelHitboxen.some(b => !(vak.x2<b.x1 || vak.x1>b.x2 || vak.y2<b.y1 || vak.y1>b.y2))) {
-        geplaatst = true; break;
-      }
-    }
-    if (!geplaatst) return;
-    labelHitboxen.push({ ...vak, mesh });
+    if (!placed) return;
 
-    const a = sc.alpha;
-    lx.fillStyle = `rgba(4,6,14,${(a*0.88).toFixed(2)})`;
-    lx.beginPath(); lx.roundRect(lbx-sc.px, lby, tw+sc.px*2, pillH, pillR); lx.fill();
-    lx.strokeStyle = kleur + sc.borderAlpha; lx.lineWidth = sc.lw; lx.stroke();
-
-    lx.strokeStyle = `rgba(${kleurHex3(kleur)},${(a*0.30).toFixed(2)})`;
-    lx.lineWidth = sc.lijnLw;
-    lx.beginPath(); lx.moveTo(x + sc.fs*0.3, y); lx.lineTo(lbx - sc.px + 1, y); lx.stroke();
-
-    lx.fillStyle = `rgba(220,232,250,${a.toFixed(2)})`;
-    lx.fillText(kort, lbx, lby + (heeftSub ? sc.fs + sc.px*0.5 : pillH - sc.px*0.7));
-    if (heeftSub) {
-      const sub = woorden.slice(1).join(' ');
-      lx.font = `${subFs}px DM Mono,monospace`;
-      lx.fillStyle = `rgba(170,200,230,${(a*0.72).toFixed(2)})`;
-      const subY = lby + sc.fs + sc.px*0.5 + subFs + 1;
-      lx.fillText(sub, lbx, subY - 1);
-      const idx = labelHitboxen.length - 1;
-      labelHitboxen[idx].y2 = subY + 2;
-    }
+    const hb = tekenEtiket(lx, {
+      x, y, dirRight: placed.dirRight,
+      naam, sub, catKleur, randHint,
+      naamFs: sc.naamFs, subFs: sc.subFs, pillH: sc.pillH,
+      rx: sc.rx, pad: sc.pad, minW: sc.minW, maxW: sc.maxW,
+      alpha: sc.alpha, offset: sc.offset,
+    });
+    labelHitboxen.push({ ...hb, mesh });
   });
 }
 
@@ -2218,6 +2459,8 @@ function rendBijdrage(b) {
   const fotoHtml = b.foto_url && /^https?:\/\//.test(b.foto_url) ? `<img src="${esc(b.foto_url)}" class="kbij-foto" loading="lazy" onerror="this.style.display='none'">` : '';
   const recHtml  = b.recensie_tekst ? `<div class="kbij-tk">${esc(b.recensie_tekst)}</div>` : '';
   const recpHtml = b.recept_tekst   ? `<div class="kbij-rec">${esc(b.recept_tekst)}</div>` : '';
+  const wijzigBaar = isEigen && b.bron !== 'untappd';
+  const wijzigBtn = wijzigBaar ? `<button onclick="wijzigEigenBijdrage('${esc(b.id)}')">Wijzig</button>` : '';
   const verwBtn  = isEigen ? `<button onclick="verwijderEigen('${esc(b.id)}')">Verwijder</button>` : '';
   const meldHref = `mailto:${BEHEER_EMAIL || ''}?subject=Melding%20bijdrage%20${encodeURIComponent(b.id)}`;
   return `<div class="kbij">
@@ -2226,7 +2469,7 @@ function rendBijdrage(b) {
       <span class="kbij-ster">${sterren}</span>
     </div>
     ${ctx}${recHtml}${recpHtml}${fotoHtml}
-    <div class="kbij-acties">${verwBtn}<a href="${meldHref}" class="kbij-melden">[melden]</a></div>
+    <div class="kbij-acties">${wijzigBtn}${verwBtn}<a href="${meldHref}" class="kbij-melden">[melden]</a></div>
   </div>`;
 }
 
@@ -2345,8 +2588,50 @@ function togThema() {
 function openModaal(id) {
   document.getElementById(id).classList.add('open');
 }
-function sluitModaal(id) {
+function sluitModaalGeforceerd(id) {
   document.getElementById(id).classList.remove('open');
+  if (id === 'm-eigen') {
+    _wijzigCtx = null;
+    resetEigenModaalKop();
+  }
+}
+function sluitModaal(id) {
+  // Wijzig-modus met dirty form: vraag bevestiging
+  if (id === 'm-eigen' && _wijzigCtx && eigenModaalIsDirty()) {
+    if (!confirm('Wijzigingen niet opgeslagen. Toch sluiten?')) return;
+  }
+  sluitModaalGeforceerd(id);
+}
+function eigenModaalIsDirty() {
+  if (!_wijzigCtx) return false;
+  const o = _wijzigCtx.origineel || {};
+  if (_wijzigCtx.tab === 'a') {
+    return (document.getElementById('ea-naam').value || '') !== (o.naam || '')
+      || parseFloat(document.getElementById('ea-lat').value) !== o.lat
+      || parseFloat(document.getElementById('ea-lng').value) !== o.lon
+      || (document.getElementById('ea-beschr').value || '') !== (o.beschr || '')
+      || (document.getElementById('ea-url').value || '') !== (o.url || '')
+      || (document.getElementById('ea-ontdekt').value || '') !== (o.ontdekt_via || '')
+      || (document.getElementById('ea-sinds').value || '') !== String(o.sinds || '')
+      || (document.querySelector('input[name="ea-schaal"]:checked')?.value || '') !== (o.schaal || '')
+      || (document.getElementById('ea-land').value || '') !== (o.land || '');
+  }
+  if (_wijzigCtx.tab === 'b') {
+    return (document.getElementById('eb-naam').value || '') !== (o.naam || '')
+      || parseFloat(document.getElementById('eb-lat').value) !== o.lat
+      || parseFloat(document.getElementById('eb-lng').value) !== o.lon
+      || (document.getElementById('eb-type').value || '') !== (o.type || '')
+      || (document.getElementById('eb-spec').value || '') !== (o.specialiteit || '')
+      || (document.getElementById('eb-beschr').value || '') !== (o.beschr || '')
+      || (document.getElementById('eb-url').value || '') !== (o.url || '');
+  }
+  if (_wijzigCtx.tab === 'c') {
+    return (document.getElementById('ec-bier').value || '') !== (o.vrij_bier_naam || '')
+      || (document.getElementById('ec-brouwerij').value || '') !== (o.vrij_brouwerij || '')
+      || (document.getElementById('ec-rec').value || '') !== (o.recensie_tekst || '')
+      || (document.getElementById('ec-recept').value || '') !== (o.recept_tekst || '');
+  }
+  return false;
 }
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') ['m-eigen','m-untappd','m-mijn'].forEach(sluitModaal);
@@ -2360,12 +2645,23 @@ document.addEventListener('keydown', e => {
 // ============================================================================
 // EIGEN PIN — modaal-flow (Tab A / B / C)
 // ============================================================================
+// Wijzig-context: null = nieuw, anders { tab, id, soort:'brouwer'|'toplocatie'|'bijdrage', origineel }
+let _wijzigCtx = null;
+
 async function opentEigenPin() {
   await laadIdentiteit();
   if (!await vraagHandle()) { toon('Pseudoniem nodig', 'err'); return; }
+  _wijzigCtx = null;
+  resetEigenModaalKop();
   vulModaalIdHeaders();
   herstelEigenDraft();
   openModaal('m-eigen');
+}
+
+function resetEigenModaalKop() {
+  document.getElementById('m-eigen-titel').textContent = '+ Eigen pin';
+  document.getElementById('m-eigen-opslaan').textContent = 'Opslaan & plaatsen';
+  document.querySelectorAll('#m-eigen .modaal-tab').forEach(t => t.style.display = '');
 }
 
 function zetEigenTab(tab) {
@@ -2484,6 +2780,7 @@ document.addEventListener('change', e => {
 async function opslaanEigenPin() {
   const tab = document.querySelector('#m-eigen .modaal-tab.on').dataset.tab;
   const knop = document.getElementById('m-eigen-opslaan');
+  const origLabel = _wijzigCtx ? 'Wijzigingen opslaan' : 'Opslaan & plaatsen';
   knop.disabled = true; knop.textContent = 'Opslaan…';
   try {
     if (tab === 'a') return await opslaanTabA();
@@ -2492,7 +2789,7 @@ async function opslaanEigenPin() {
   } catch (e) {
     toon('Fout: ' + e.message, 'err');
   } finally {
-    knop.disabled = false; knop.textContent = 'Opslaan & plaatsen';
+    knop.disabled = false; knop.textContent = origLabel;
   }
 }
 
@@ -2519,12 +2816,22 @@ async function opslaanTabA() {
     beschrijving: document.getElementById('ea-beschr').value,
     ontdekt_via: document.getElementById('ea-ontdekt').value,
   };
+  if (_wijzigCtx && _wijzigCtx.soort === 'brouwer') {
+    const r = await postNaarBackend('wijzig_eigen_brouwer', { id: _wijzigCtx.id, ...payload });
+    if (!r.ok) throw new Error(r.fout || 'onbekend');
+    toon('Wijziging opgeslagen', 'ok');
+    _wijzigCtx = null;
+    sluitModaalGeforceerd('m-eigen');
+    await herlaadEnHertekenen();
+    if (document.getElementById('m-mijn').classList.contains('open')) vulMijn();
+    return;
+  }
   const r = await postNaarBackend('eigen_brouwer', payload);
   if (!r.ok) throw new Error(r.fout || 'onbekend');
   toon('Brouwerij geplaatst', 'ok');
   wisDraft('a');
   ['ea-naam','ea-adres','ea-lat','ea-lng','ea-sinds','ea-url','ea-beschr','ea-ontdekt'].forEach(id => document.getElementById(id).value = '');
-  sluitModaal('m-eigen');
+  sluitModaalGeforceerd('m-eigen');
   await herlaadEnHertekenen();
 }
 
@@ -2552,12 +2859,22 @@ async function opslaanTabB() {
     beschrijving: document.getElementById('eb-beschr').value,
     url: document.getElementById('eb-url').value,
   };
+  if (_wijzigCtx && _wijzigCtx.soort === 'toplocatie') {
+    const r = await postNaarBackend('wijzig_eigen_toplocatie', { id: _wijzigCtx.id, ...payload });
+    if (!r.ok) throw new Error(r.fout || 'onbekend');
+    toon('Wijziging opgeslagen', 'ok');
+    _wijzigCtx = null;
+    sluitModaalGeforceerd('m-eigen');
+    await herlaadEnHertekenen();
+    if (document.getElementById('m-mijn').classList.contains('open')) vulMijn();
+    return;
+  }
   const r = await postNaarBackend('eigen_toplocatie', payload);
   if (!r.ok) throw new Error(r.fout || 'onbekend');
   toon('Toplocatie geplaatst', 'ok');
   wisDraft('b');
   ['eb-naam','eb-adres','eb-lat','eb-lng','eb-taps','eb-flesblik','eb-spec','eb-beschr','eb-url'].forEach(id => document.getElementById(id).value = '');
-  sluitModaal('m-eigen');
+  sluitModaalGeforceerd('m-eigen');
   await herlaadEnHertekenen();
 }
 
@@ -2582,12 +2899,22 @@ async function opslaanTabC() {
     geproefd_op: document.getElementById('ec-datum').value,
     foto_url: document.getElementById('ec-foto').value,
   };
+  if (_wijzigCtx && _wijzigCtx.soort === 'bijdrage') {
+    const r = await postNaarBackend('wijzig_eigen_bijdrage', { id: _wijzigCtx.id, ...payload });
+    if (!r.ok) throw new Error(r.fout || 'onbekend');
+    toon('Wijziging opgeslagen', 'ok');
+    _wijzigCtx = null;
+    sluitModaalGeforceerd('m-eigen');
+    await herlaadEnHertekenen();
+    if (document.getElementById('m-mijn').classList.contains('open')) vulMijn();
+    return;
+  }
   const r = await postNaarBackend('eigen_bijdrage', payload);
   if (!r.ok) throw new Error(r.fout || 'onbekend');
   toon('Bijdrage opgeslagen', 'ok');
   wisDraft('c');
   ['ec-bier','ec-brouwerij','ec-stijl','ec-alc','ec-batch','ec-rec','ec-recept','ec-foto'].forEach(id => document.getElementById(id).value = '');
-  sluitModaal('m-eigen');
+  sluitModaalGeforceerd('m-eigen');
   await herlaadEnHertekenen();
 }
 
@@ -2602,8 +2929,15 @@ async function postNaarBackend(actie, payload) {
   const body = {
     actie, gid: IDEN.gid, handle: IDEN.handle,
     untappd_user_hash: stuurHash ? IDEN.untappdHash : null,
-    payload,
   };
+  // Wijzig-acties hebben body.id buiten payload (server zoekt rij op id)
+  if (actie.indexOf('wijzig_') === 0) {
+    body.id = payload.id;
+    const { id, ...rest } = payload;
+    body.payload = rest;
+  } else {
+    body.payload = payload;
+  }
   const resp = await fetch(GAS_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -2636,6 +2970,124 @@ async function verwijderEigen(id) {
   if (!r.ok) { toon('Verwijderen mislukt: ' + (r.fout || ''), 'err'); return; }
   toon('Verwijderd', 'ok');
   await herlaadEnHertekenen();
+}
+
+// ============================================================================
+// WIJZIG-FLOW — eigen pins en bijdragen (DEEL 4)
+// ============================================================================
+async function wijzigEigenPin(id) {
+  await laadIdentiteit();
+  const loc = _idIndex.get(id);
+  if (!loc) { toon('Pin niet gevonden', 'err'); return; }
+  if (loc.gid !== IDEN.gid) { toon('Niet jouw pin', 'err'); return; }
+  const tab = (loc.cat === 'eigen_brouwer') ? 'a'
+            : (loc.cat === 'eigen_toplocatie') ? 'b'
+            : null;
+  if (!tab) { toon('Wijzigen niet ondersteund voor dit type', 'err'); return; }
+  _wijzigCtx = {
+    tab, id, soort: tab === 'a' ? 'brouwer' : 'toplocatie', origineel: { ...loc },
+  };
+  vulModaalIdHeaders();
+  vulFormUitLoc(tab, loc);
+  zetEigenTab(tab);
+  // Verberg andere tabs in wijzig-mode (consistent met "wijzig dit specifieke item")
+  document.querySelectorAll('#m-eigen .modaal-tab').forEach(t => t.style.display = t.dataset.tab === tab ? '' : 'none');
+  document.getElementById('m-eigen-titel').textContent = 'Wijzig: ' + (loc.naam || '');
+  document.getElementById('m-eigen-opslaan').textContent = 'Wijzigingen opslaan';
+  sluitModaalGeforceerd('m-mijn');
+  openModaal('m-eigen');
+}
+
+async function wijzigEigenBijdrage(bijdrageId) {
+  await laadIdentiteit();
+  // Zoek bijdrage in BIJDRAGEN_PER_PIN of BIJDRAGEN_VRIJ
+  let b = null;
+  BIJDRAGEN_PER_PIN.forEach(arr => arr.forEach(x => { if (x.id === bijdrageId) b = x; }));
+  if (!b) (BIJDRAGEN_VRIJ.get(IDEN.gid) || []).forEach(x => { if (x.id === bijdrageId) b = x; });
+  if (!b) { toon('Bijdrage niet gevonden', 'err'); return; }
+  if (b.gid !== IDEN.gid) { toon('Niet jouw bijdrage', 'err'); return; }
+  _wijzigCtx = { tab:'c', id: bijdrageId, soort:'bijdrage', origineel: { ...b } };
+  vulModaalIdHeaders();
+  vulFormUitBijdrage(b);
+  zetEigenTab('c');
+  document.querySelectorAll('#m-eigen .modaal-tab').forEach(t => t.style.display = t.dataset.tab === 'c' ? '' : 'none');
+  document.getElementById('m-eigen-titel').textContent = 'Wijzig: ' + (b.vrij_bier_naam || 'recensie');
+  document.getElementById('m-eigen-opslaan').textContent = 'Wijzigingen opslaan';
+  sluitModaalGeforceerd('m-mijn');
+  openModaal('m-eigen');
+}
+
+function vulFormUitLoc(tab, loc) {
+  if (tab === 'a') {
+    document.getElementById('ea-naam').value   = loc.naam || '';
+    document.getElementById('ea-adres').value  = loc.naam ? `${loc.lat?.toFixed(4)}, ${loc.lon?.toFixed(4)}` : '';
+    document.getElementById('ea-lat').value    = loc.lat || '';
+    document.getElementById('ea-lng').value    = loc.lon || '';
+    document.getElementById('ea-land').value   = loc.land || 'NL';
+    document.getElementById('ea-sinds').value  = loc.sinds || '';
+    document.getElementById('ea-url').value    = loc.url || '';
+    document.getElementById('ea-beschr').value = loc.beschr || '';
+    document.getElementById('ea-ontdekt').value= loc.ontdekt_via || '';
+    const schaal = loc.schaal || 'lokaal';
+    const radio = document.querySelector(`input[name="ea-schaal"][value="${schaal}"]`);
+    if (radio) radio.checked = true;
+    const geo = document.getElementById('ea-geo');
+    if (geo) geo.textContent = `huidige locatie: ${(+loc.lat).toFixed(4)}, ${(+loc.lon).toFixed(4)}`;
+  } else if (tab === 'b') {
+    document.getElementById('eb-naam').value     = loc.naam || '';
+    document.getElementById('eb-adres').value    = loc.naam ? `${loc.lat?.toFixed(4)}, ${loc.lon?.toFixed(4)}` : '';
+    document.getElementById('eb-lat').value      = loc.lat || '';
+    document.getElementById('eb-lng').value      = loc.lon || '';
+    document.getElementById('eb-type').value     = loc.type || 'café';
+    document.getElementById('eb-taps').value     = loc.taps || '';
+    document.getElementById('eb-flesblik').value = loc.fles_blik || '';
+    document.getElementById('eb-spec').value     = loc.specialiteit || '';
+    document.getElementById('eb-beschr').value   = loc.beschr || '';
+    document.getElementById('eb-url').value      = loc.url || '';
+    const ster = Math.round(loc.sterren || 3);
+    const radio = document.querySelector(`input[name="eb-sterren"][value="${ster}"]`);
+    if (radio) radio.checked = true;
+    const geo = document.getElementById('eb-geo');
+    if (geo) geo.textContent = `huidige locatie: ${(+loc.lat).toFixed(4)}, ${(+loc.lon).toFixed(4)}`;
+  }
+}
+
+function vulFormUitBijdrage(b) {
+  document.getElementById('ec-bier').value      = b.vrij_bier_naam || '';
+  document.getElementById('ec-brouwerij').value = b.vrij_brouwerij || '';
+  document.getElementById('ec-stijl').value     = b.stijl || '';
+  document.getElementById('ec-alc').value       = b.alc || '';
+  document.getElementById('ec-vorm').value      = b.vorm || '';
+  document.getElementById('ec-batch').value     = b.batch || '';
+  document.getElementById('ec-rec').value       = b.recensie_tekst || '';
+  document.getElementById('ec-recept').value    = b.recept_tekst || '';
+  document.getElementById('ec-foto').value      = b.foto_url || '';
+  if (b.geproefd_op) {
+    try { document.getElementById('ec-datum').value = new Date(b.geproefd_op).toISOString().slice(0,10); }
+    catch (e) {}
+  }
+  const ster = Math.round(b.sterren || 3);
+  const sRadio = document.querySelector(`input[name="ec-sterren"][value="${ster}"]`);
+  if (sRadio) sRadio.checked = true;
+  const soort = b.soort || 'recensie';
+  const soRadio = document.querySelector(`input[name="ec-soort"][value="${soort}"]`);
+  if (soRadio) soRadio.checked = true;
+  // Trigger zicht-updates voor recensie/recept-velden
+  document.getElementById('ec-rec-wrap').style.display    = (soort === 'recensie' || soort === 'beide') ? '' : 'none';
+  document.getElementById('ec-recept-wrap').style.display = (soort === 'recept'   || soort === 'beide') ? '' : 'none';
+  document.getElementById('ec-sterren-wrap').style.display = (soort === 'recensie' || soort === 'beide') ? '' : 'none';
+  // Koppel-info
+  if (b.gekoppeld_id) {
+    const koppel = _idIndex.get(b.gekoppeld_id);
+    if (koppel) {
+      _gekozenKoppel = koppel;
+      document.getElementById('ec-koppel-zoek').value = koppel.naam || '';
+      document.getElementById('ec-koppel-status').innerHTML = 'Gekoppeld aan: <b>' + esc(koppel.naam) + '</b>';
+    }
+    document.getElementById('ec-vrij').checked = false;
+  } else {
+    document.getElementById('ec-vrij').checked = true;
+  }
 }
 
 // ============================================================================
@@ -2912,9 +3364,13 @@ function vulMijn() {
   if (!eigenLoc.length) html += `<div class="modaal-hint">Nog geen handmatige pins.</div>`;
   eigenLoc.forEach(l => {
     const t = typeVoorId(l.cat);
+    const wijzigBaar = l.cat === 'eigen_brouwer' || l.cat === 'eigen_toplocatie';
+    const wijzigBtn = wijzigBaar
+      ? `<button class="kbij-knop" onclick="wijzigEigenPin('${esc(l.id)}')">Wijzig</button>`
+      : '';
     html += `<div class="kbij">
       <div class="kbij-hdr"><span><b>${esc(l.naam)}</b> · ${esc(t?.naam || l.cat)}</span>
-      <button onclick="verwijderEigen('${esc(l.id)}')" style="background:transparent;border:1px solid var(--brd);color:var(--dim);border-radius:4px;padding:2px 7px;cursor:pointer;font-family:'DM Mono',monospace;font-size:.55rem">Verwijder</button></span>
+      <span>${wijzigBtn}<button class="kbij-knop" onclick="verwijderEigen('${esc(l.id)}')">Verwijder</button></span>
       </div>
       <div class="kbij-tk">${esc(l.beschr || '')}</div>
     </div>`;
@@ -2975,15 +3431,20 @@ function plaatsLfPins() {
     if (loc._verborgenInV1) return;
     if (!visiblePinFilter.has(loc.id)) return;
     const kleur = kleurVoorCat(loc.cat);
-    const m = L.circleMarker([loc.lat, loc.lon], {
-      radius: 7,
-      color: '#04060d',
-      weight: 2,
-      fillColor: kleur,
-      fillOpacity: 0.92,
+    const randH = randHintVoor(loc);
+    const schaal = loc.schaal || 'regionaal';
+    const f = SCHAAL_HOOFDR[schaal] || 0.85;
+    const sizePx = Math.round(28 * f + 10);
+    const svg = kroonkurkSVG(kleur, schaal, randH, sizePx);
+    const ico = L.divIcon({
+      className: 'lf-kroonkurk',
+      html: svg,
+      iconSize: [sizePx, sizePx],
+      iconAnchor: [sizePx/2, sizePx/2],
     });
+    const m = L.marker([loc.lat, loc.lon], { icon: ico });
     m.bindTooltip(esc(loc.naam || ''), {
-      permanent: true, direction: 'bottom', offset: [0, 6],
+      permanent: true, direction: 'bottom', offset: [0, sizePx/2 + 2],
       className: 'lf-pin-tt',
     });
     m.on('click', () => openK(loc));
