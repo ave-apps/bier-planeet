@@ -228,8 +228,13 @@
   .lf-pin-label{background:rgba(4,6,14,.92);border:1px solid;border-radius:5px;padding:3px 8px 4px;font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;cursor:pointer;pointer-events:auto;overflow:hidden;box-sizing:border-box}
   .lf-kroonkurk{background:transparent!important;border:none!important;cursor:pointer}
   .lf-pin-dot{width:13px;height:13px;border-radius:50%;border:2px solid rgba(255,255,255,.45);cursor:pointer;box-shadow:0 0 6px 2px var(--glow,rgba(74,255,160,.45))}
-  .lf-pin-tt{background:rgba(4,6,14,.92)!important;border:1px solid rgba(74,158,255,.55)!important;border-radius:5px!important;padding:2px 7px 3px!important;font-family:'DM Mono',monospace!important;font-size:10px!important;color:#cfe3ff!important;box-shadow:0 0 4px rgba(0,0,0,.6)}
+  /* Capsule-etiket op Leaflet (DEEL 2 v3.1) — overeen met canvas-etiket op globe */
+  .lf-pin-tt{background:#241a14!important;border:0.5px solid #8a6f3a!important;border-radius:20px!important;padding:5px 20px 6px!important;font-family:'DM Serif Display',serif!important;color:#f4ecd8!important;box-shadow:0 0 6px rgba(0,0,0,.6);min-width:100px;max-width:240px;text-align:center;line-height:1.2}
   .lf-pin-tt::before{display:none!important}
+  .lf-pin-tt.has-rand{box-shadow:0 0 0 1px var(--rand-hint),0 0 6px rgba(0,0,0,.6)}
+  .lf-pin-streep{display:block;height:0.5px;margin:0 0 3px;opacity:.6;width:calc(100% - 0px)}
+  .lf-pin-naam{display:block;font-family:'DM Serif Display',serif;font-size:13px;color:#f4ecd8;line-height:1.15;white-space:normal;overflow:hidden;text-overflow:ellipsis}
+  .lf-pin-sub{display:block;font-family:'DM Mono',monospace;font-size:9px;color:#a89878;letter-spacing:.1em;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .leaflet-control-zoom a{background:rgba(10,14,24,.9)!important;color:var(--txt)!important;border-color:var(--brd)!important}
   .leaflet-control-attribution{background:rgba(4,6,14,.7)!important;color:var(--dim)!important;font-size:.5rem!important}
 
@@ -828,6 +833,7 @@ function bouwLOCenVBN() {
     sinds: b.sinds, ontdekt_via: b.ontdekt_via,
     bron: b.bron, untappd_user_hash: b.untappd_user_hash || null,
     dominant_biertype: b.dominant_biertype || null,
+    adres_tekst: b.adres_tekst || '',
     eigen: true,
   }));
   // Eigen toplocaties
@@ -841,6 +847,7 @@ function bouwLOCenVBN() {
     sterren: +t.sterren || 0, taps: +t.taps || 0, fles_blik: +t.fles_blik || 0,
     specialiteit: t.specialiteit,
     bron: t.bron, untappd_user_hash: t.untappd_user_hash || null,
+    adres_tekst: t.adres_tekst || '',
     eigen: true,
   }));
 
@@ -2652,6 +2659,7 @@ async function opentEigenPin() {
   await laadIdentiteit();
   if (!await vraagHandle()) { toon('Pseudoniem nodig', 'err'); return; }
   _wijzigCtx = null;
+  _adresTekstGewijzigd = false;
   resetEigenModaalKop();
   vulModaalIdHeaders();
   herstelEigenDraft();
@@ -2694,9 +2702,17 @@ async function probeerGeocode(adresEl, latEl, lngEl, statusEl) {
   }
 }
 
+// Gebruiker-wijziging op het adres-tekstveld bijhouden — bepaalt of we
+// adres_tekst meesturen bij Wijzig (handmatige lat/lng-wijziging mag het
+// oorspronkelijk bewaarde adres niet overschrijven).
+let _adresTekstGewijzigd = false;
 ['ea-adres','eb-adres'].forEach(id => {
+  document.addEventListener('input', e => {
+    if (e.target && e.target.id === id) _adresTekstGewijzigd = true;
+  });
   document.addEventListener('change', e => {
     if (e.target && e.target.id === id) {
+      _adresTekstGewijzigd = true;
       const prefix = id.slice(0, 2);
       probeerGeocode(
         document.getElementById(id),
@@ -2816,6 +2832,9 @@ async function opslaanTabA() {
     beschrijving: document.getElementById('ea-beschr').value,
     ontdekt_via: document.getElementById('ea-ontdekt').value,
   };
+  // adres_tekst: bij nieuwe pin altijd meesturen (rauwe ingetypte tekst);
+  // bij Wijzig alleen meesturen als het veld daadwerkelijk is veranderd.
+  if (!_wijzigCtx || _adresTekstGewijzigd) payload.adres_tekst = adres;
   if (_wijzigCtx && _wijzigCtx.soort === 'brouwer') {
     const r = await postNaarBackend('wijzig_eigen_brouwer', { id: _wijzigCtx.id, ...payload });
     if (!r.ok) throw new Error(r.fout || 'onbekend');
@@ -2859,6 +2878,7 @@ async function opslaanTabB() {
     beschrijving: document.getElementById('eb-beschr').value,
     url: document.getElementById('eb-url').value,
   };
+  if (!_wijzigCtx || _adresTekstGewijzigd) payload.adres_tekst = adres;
   if (_wijzigCtx && _wijzigCtx.soort === 'toplocatie') {
     const r = await postNaarBackend('wijzig_eigen_toplocatie', { id: _wijzigCtx.id, ...payload });
     if (!r.ok) throw new Error(r.fout || 'onbekend');
@@ -2987,6 +3007,7 @@ async function wijzigEigenPin(id) {
   _wijzigCtx = {
     tab, id, soort: tab === 'a' ? 'brouwer' : 'toplocatie', origineel: { ...loc },
   };
+  _adresTekstGewijzigd = false;
   vulModaalIdHeaders();
   vulFormUitLoc(tab, loc);
   zetEigenTab(tab);
@@ -3018,9 +3039,13 @@ async function wijzigEigenBijdrage(bijdrageId) {
 }
 
 function vulFormUitLoc(tab, loc) {
+  // Adres-tekstveld voor-invullen met opgeslagen rauwe tekst (DEEL 3 v3.1).
+  // Fallback bij ontbrekend adres_tekst: coördinaten + grijze info-hint.
+  const heeftAdresTekst = !!(loc.adres_tekst && String(loc.adres_tekst).trim());
+  const fallbackCoord = `${(+loc.lat).toFixed(4)}, ${(+loc.lon).toFixed(4)}`;
   if (tab === 'a') {
     document.getElementById('ea-naam').value   = loc.naam || '';
-    document.getElementById('ea-adres').value  = loc.naam ? `${loc.lat?.toFixed(4)}, ${loc.lon?.toFixed(4)}` : '';
+    document.getElementById('ea-adres').value  = heeftAdresTekst ? loc.adres_tekst : fallbackCoord;
     document.getElementById('ea-lat').value    = loc.lat || '';
     document.getElementById('ea-lng').value    = loc.lon || '';
     document.getElementById('ea-land').value   = loc.land || 'NL';
@@ -3032,10 +3057,12 @@ function vulFormUitLoc(tab, loc) {
     const radio = document.querySelector(`input[name="ea-schaal"][value="${schaal}"]`);
     if (radio) radio.checked = true;
     const geo = document.getElementById('ea-geo');
-    if (geo) geo.textContent = `huidige locatie: ${(+loc.lat).toFixed(4)}, ${(+loc.lon).toFixed(4)}`;
+    if (geo) geo.textContent = heeftAdresTekst
+      ? `huidige locatie: ${fallbackCoord}`
+      : `oorspronkelijk adres niet bewaard — coördinaten: ${fallbackCoord}`;
   } else if (tab === 'b') {
     document.getElementById('eb-naam').value     = loc.naam || '';
-    document.getElementById('eb-adres').value    = loc.naam ? `${loc.lat?.toFixed(4)}, ${loc.lon?.toFixed(4)}` : '';
+    document.getElementById('eb-adres').value    = heeftAdresTekst ? loc.adres_tekst : fallbackCoord;
     document.getElementById('eb-lat').value      = loc.lat || '';
     document.getElementById('eb-lng').value      = loc.lon || '';
     document.getElementById('eb-type').value     = loc.type || 'café';
@@ -3048,7 +3075,9 @@ function vulFormUitLoc(tab, loc) {
     const radio = document.querySelector(`input[name="eb-sterren"][value="${ster}"]`);
     if (radio) radio.checked = true;
     const geo = document.getElementById('eb-geo');
-    if (geo) geo.textContent = `huidige locatie: ${(+loc.lat).toFixed(4)}, ${(+loc.lon).toFixed(4)}`;
+    if (geo) geo.textContent = heeftAdresTekst
+      ? `huidige locatie: ${fallbackCoord}`
+      : `oorspronkelijk adres niet bewaard — coördinaten: ${fallbackCoord}`;
   }
 }
 
@@ -3443,10 +3472,25 @@ function plaatsLfPins() {
       iconAnchor: [sizePx/2, sizePx/2],
     });
     const m = L.marker([loc.lat, loc.lon], { icon: ico });
-    m.bindTooltip(esc(loc.naam || ''), {
+    const sub = sublabelVoor(loc);
+    const naam = esc(loc.naam || '');
+    const ttHTML =
+      `<span class="lf-pin-streep" style="background:${kleur}"></span>` +
+      `<span class="lf-pin-naam">${naam}</span>` +
+      (sub ? `<span class="lf-pin-sub">${esc(sub)}</span>` : '');
+    const ttClass = 'lf-pin-tt' + (randH ? ' has-rand' : '');
+    m.bindTooltip(ttHTML, {
       permanent: true, direction: 'bottom', offset: [0, sizePx/2 + 2],
-      className: 'lf-pin-tt',
+      className: ttClass,
     });
+    if (randH) {
+      // box-shadow ring kleur via CSS var op het tooltip-element zodra het bestaat
+      m.on('tooltipopen', (ev) => {
+        if (ev.tooltip && ev.tooltip._container) {
+          ev.tooltip._container.style.setProperty('--rand-hint', randH);
+        }
+      });
+    }
     m.on('click', () => openK(loc));
     m.addTo(lmap);
     lfMarkers.push(m);
