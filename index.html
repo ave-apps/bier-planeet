@@ -229,9 +229,13 @@
   .lf-kroonkurk{background:transparent!important;border:none!important;cursor:pointer}
   .lf-pin-dot{width:13px;height:13px;border-radius:50%;border:2px solid rgba(255,255,255,.45);cursor:pointer;box-shadow:0 0 6px 2px var(--glow,rgba(74,255,160,.45))}
   /* Capsule-etiket op Leaflet (DEEL 2 v3.1) — overeen met canvas-etiket op globe */
-  .lf-pin-tt{background:#241a14!important;border:0.5px solid #8a6f3a!important;border-radius:20px!important;padding:5px 20px 6px!important;font-family:'DM Serif Display',serif!important;color:#f4ecd8!important;box-shadow:0 0 6px rgba(0,0,0,.6);min-width:100px;max-width:240px;text-align:center;line-height:1.2}
+  .lf-pin-tt{background:#241a14!important;border:0.5px solid #8a6f3a!important;border-radius:20px!important;padding:5px 20px 6px!important;font-family:'DM Serif Display',serif!important;color:#f4ecd8!important;box-shadow:0 0 6px rgba(0,0,0,.6);min-width:100px;max-width:240px;text-align:center;line-height:1.2;transform:scale(var(--lf-tt-scale,1));transform-origin:top center;transition:transform 120ms ease}
   .lf-pin-tt::before{display:none!important}
   .lf-pin-tt.has-rand{box-shadow:0 0 0 1px var(--rand-hint),0 0 6px rgba(0,0,0,.6)}
+  /* Hover/vastgepind blijven altijd op vol formaat — slider-schaling negeren */
+  .lf-pin-tt.bp-tt-hover,.lf-pin-tt.bp-tt-pinned{transform:scale(1)!important}
+  /* Op kleine schaal: sublabel verbergen, conform 3D-modus */
+  .leaflet-container.lf-tt-small .lf-pin-tt:not(.bp-tt-hover):not(.bp-tt-pinned) .lf-pin-sub{display:none!important}
   /* v3.3.1: boven zoom-drempel (uitgezoomd) auto-labels volledig verbergen
      (display:none, geen tussenstand). Hover/klik (vastgepind) blijft via
      .bp-tt-hover/.bp-tt-pinned zichtbaar. */
@@ -3507,15 +3511,54 @@ function globeCentrum() {
   return { lat, lon };
 }
 
-// v3.3 — Leaflet auto-label-drempel: bij zoom < LF_AUTO_TT_MIN tonen we labels
-// alleen op hover/klik (vastgepind), om overlap op uitgezoomde kaart te
-// voorkomen. Default-zoom is 9, dus standaard ongewijzigd t.o.v. v3.2.
-const LF_AUTO_TT_MIN = 7;
+// v3.8 — slider stuurt nu OOK Leaflet-tooltip-drempel (piecewise).
+// In 3D-modus regelt de slider de canvas-label-drempel (cz). Diezelfde
+// slider-positie wordt vertaald naar een Leaflet-zoom-drempel: onder die
+// zoom geen auto-tooltips, daarboven verschijnen ze klein en groeien tot
+// vol formaat op LF_TT_FULL_ZOOM. Bij Leaflet-zoom < LF_RETURN_ZOOM
+// schakelen we naadloos terug naar de 3D-bol (trap 2).
+const LF_TT_FULL_ZOOM = 13;     // Leaflet-zoom waar tooltips op vol formaat zijn
+const LF_RETURN_ZOOM  = 5;      // onder deze Leaflet-zoom: terug naar 3D-bol
+
+function lfTtDrempel() {
+  // Slider 1.10 -> 18 (vrijwel nooit), 1.35 -> 7 (default), 4.00 -> 1 (altijd)
+  const v = LBL_PIN_AUTO_DREMPEL;
+  if (v <= 1.35) return 18 - (v - 1.10) / Math.max(0.01, 1.35 - 1.10) * 11;
+  return 7 - (v - 1.35) / Math.max(0.01, 4.00 - 1.35) * 6;
+}
+
+function updLfTooltipScale() {
+  if (!lmap) return;
+  const z = lmap.getZoom();
+  const min = lfTtDrempel();
+  const t = Math.max(0, Math.min(1, (z - min) / Math.max(0.01, LF_TT_FULL_ZOOM - min)));
+  const scale = LBL_SCALE_MIN + (1 - LBL_SCALE_MIN) * t;
+  document.documentElement.style.setProperty('--lf-tt-scale', scale.toFixed(3));
+  lmap.getContainer().classList.toggle('lf-tt-small', scale < LBL_SUB_DREMPEL);
+}
 
 function updLfLabelMode() {
   if (!lmap) return;
   const z = lmap.getZoom();
-  lmap.getContainer().classList.toggle('bp-no-auto-tt', z < LF_AUTO_TT_MIN);
+  lmap.getContainer().classList.toggle('bp-no-auto-tt', z < lfTtDrempel());
+  updLfTooltipScale();
+}
+
+// rotX/rotY uit lat/lon — inverse van globeCentrum().
+// Werkt voor euler-volgorde XYZ: rotX = lat (rad), rotY = -lon (rad).
+function setBolDirection(latDeg, lonDeg) {
+  rotX = Math.max(-1.4, Math.min(1.4, latDeg * Math.PI / 180));
+  rotY = -lonDeg * Math.PI / 180;
+}
+
+function mogelijkeTerugkeerNaarBol() {
+  if (!lmap || !mapModus) return;
+  if (lmap.getZoom() < LF_RETURN_ZOOM) {
+    const c = lmap.getCenter();
+    setBolDirection(c.lat, c.lng);
+    doelZ = CZ[2];
+    setTrap(2);
+  }
 }
 
 function setLfPinned(loc) {
@@ -3538,7 +3581,8 @@ function initLeaflet() {
     attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
     subdomains:'abcd', maxZoom:19, r: window.devicePixelRatio > 1 ? '@2x' : '',
   }).addTo(lmap);
-  lmap.on('zoomend', updLfLabelMode);
+  lmap.on('zoom', updLfTooltipScale);
+  lmap.on('zoomend', () => { updLfLabelMode(); mogelijkeTerugkeerNaarBol(); });
   // Markers worden pas geplaatst zodra mapModus daadwerkelijk aan gaat —
   // anders zouden ze al meedoen tijdens de fade en dubbel renderen met de
   // Three.js sprites.
@@ -3732,6 +3776,7 @@ function initLabelDrempelSlider() {
     val.textContent = v.toFixed(2);
     localStorage.setItem('bp_label_drempel', String(v));
     herteken();
+    updLfLabelMode();
   });
 }
 
