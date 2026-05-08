@@ -244,6 +244,14 @@
 
   ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--brd);border-radius:2px}
 
+  /* LABEL-DREMPEL SLIDER (onderin) — regelt vanaf welk zoomniveau auto-pin-labels verschijnen */
+  #lblSlider{position:absolute;left:50%;bottom:8px;transform:translateX(-50%);z-index:15;display:flex;align-items:center;gap:8px;padding:5px 11px;border:1px solid var(--brd);background:rgba(8,12,22,.85);border-radius:18px;font-family:'DM Mono',monospace;font-size:.55rem;color:var(--dim);backdrop-filter:blur(8px);user-select:none}
+  #lblSlider label{letter-spacing:.04em;text-transform:uppercase;opacity:.75;white-space:nowrap}
+  #lblSlider input[type=range]{-webkit-appearance:none;appearance:none;width:160px;height:3px;background:var(--brd);border-radius:2px;outline:none;cursor:pointer}
+  #lblSlider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:13px;height:13px;border-radius:50%;background:var(--gld);border:1px solid rgba(0,0,0,.4);cursor:pointer}
+  #lblSlider input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--gld);border:1px solid rgba(0,0,0,.4);cursor:pointer}
+  #lblSlider .val{color:var(--gld);min-width:30px;text-align:right;font-variant-numeric:tabular-nums}
+
   @media(max-width:640px){
     #relPanel{right:6px;top:auto;bottom:120px;min-width:170px}
     #schaalLeg{right:6px;bottom:208px}
@@ -253,6 +261,8 @@
     .hsub{display:none}
     .ztraps{right:6px}
     .ztb{width:38px;height:38px}
+    #lblSlider{padding:4px 9px;gap:6px}
+    #lblSlider input[type=range]{width:110px}
   }
 </style>
 </head>
@@ -297,6 +307,13 @@
     <button class="ztb on" id="zt1" onclick="setTrap(1)"><span class="zi">&#127760;</span><span class="zk">5000km</span></button>
     <button class="ztb" id="zt2" onclick="setTrap(2)"><span class="zi">&#128269;</span><span class="zk">500km</span></button>
     <button class="ztb" id="zt3" onclick="setTrap(3)"><span class="zi">&#128205;</span><span class="zk">50km</span></button>
+  </div>
+
+  <!-- LABEL-DREMPEL SLIDER -->
+  <div id="lblSlider" title="Vanaf welk zoomniveau auto-labels op pins verschijnen. Lager = dichter inzoomen voordat labels openen.">
+    <label for="lblDrempelInput">Labels vanaf</label>
+    <input type="range" id="lblDrempelInput" min="1.05" max="1.6" step="0.01" value="1.18">
+    <span class="val" id="lblDrempelVal">1.18</span>
   </div>
 
   <!-- RELATIELAGEN -->
@@ -1771,20 +1788,30 @@ const lc = document.getElementById('clx');
 const lx = lc.getContext('2d');
 let labelHitboxen = [];
 
-// v3.4 — harde zoom-drempel voor individuele pin-labels (geen fade-band):
-//  • cz <  LBL_PIN_AUTO_DREMPEL : individuele pin-labels auto-zichtbaar
-//  • cz >= LBL_PIN_AUTO_DREMPEL : geen auto-labels op individuele pins;
-//    enkel hover/vastgepind/rozet en cluster-capsules blijven over.
-// Drempel naar 1.3: Trap 3 (Regionaal, cz 1.3) valt nu óók in de
-// "geen auto-labels"-categorie. Auto-labels pas bij dieper inzoomen
-// (mouse-wheel voorbij Trap 3, cz < 1.3).
-const LBL_PIN_AUTO_DREMPEL = 1.3;
+// v3.5 — gebruiker-instelbare drempel + auto-pin-labels schalen mee met zoom
+// (klein op de drempel, groot bij maximaal inzoomen). Hover/vastgepind/rozet/
+// cluster-capsules blijven op vol formaat (scale=1).
+//
+// Slider onderin scherm regelt LBL_PIN_AUTO_DREMPEL (range 1.05–1.6),
+// opgeslagen in localStorage onder bp_label_drempel.
+const LBL_DREMPEL_MIN = 1.05;
+const LBL_DREMPEL_MAX = 1.6;
+const LBL_DREMPEL_DEFAULT = 1.18;
+const LBL_CZ_MIN = 1.1;             // diepste inzoom — daar volle label-grootte
+const LBL_SCALE_MIN = 0.55;         // grootte op de drempel
+let LBL_PIN_AUTO_DREMPEL = (() => {
+  const opg = parseFloat(localStorage.getItem('bp_label_drempel'));
+  if (Number.isFinite(opg) && opg >= LBL_DREMPEL_MIN && opg <= LBL_DREMPEL_MAX) return opg;
+  return LBL_DREMPEL_DEFAULT;
+})();
 
 function labelSchaal() {
   const cz = camera.position.z;
   const pinAutoOn = cz < LBL_PIN_AUTO_DREMPEL;
-  // v3.4 — vaste, compacte capsule-afmetingen (geen schaling met zoom).
-  // Eén etiket-stijl voor auto, hover, vastgepind en cluster.
+  // Schaalfactor voor auto-pin-labels: 0 op drempel → 1 bij cz=LBL_CZ_MIN.
+  // Lineair, geclamped. Resulterende capsule-schaal = LBL_SCALE_MIN..1.
+  const t = Math.max(0, Math.min(1, (LBL_PIN_AUTO_DREMPEL - cz) / Math.max(0.01, LBL_PIN_AUTO_DREMPEL - LBL_CZ_MIN)));
+  const pinAutoScale = LBL_SCALE_MIN + (1 - LBL_SCALE_MIN) * t;
   return {
     naamFs: 11,                       // DM Serif Display
     subFs:  8,                        // DM Mono
@@ -1795,6 +1822,7 @@ function labelSchaal() {
     maxW:   180,
     offset: 10,                       // verbindingslijn-lengte
     pinAutoOn,                        // boolean — auto-labels op individuele pins?
+    pinAutoScale,                     // schaalfactor voor auto-pin-labels (0.55..1)
   };
 }
 
@@ -1971,7 +1999,10 @@ function herteken() {
     if (cam.z > 1.0) return;
     if (wp.clone().normalize().dot(camera.position.clone().sub(wp).normalize()) < 0.10) return;
     const prio = pinned ? 2 : (hovered ? 1 : 0);
-    items.push({ mesh, kind:'pin', x:(cam.x*.5+.5)*w, y:(-cam.y*.5+.5)*h, z:cam.z, alpha:1, prio });
+    // Auto-pin-labels schalen mee met zoom (klein bij drempel, vol bij max in).
+    // Hover/vastgepind/rozet blijven altijd op vol formaat.
+    const scale = altijd ? 1 : sc.pinAutoScale;
+    items.push({ mesh, kind:'pin', x:(cam.x*.5+.5)*w, y:(-cam.y*.5+.5)*h, z:cam.z, alpha:1, prio, scale });
   });
 
   clusterSprites.forEach(cs => {
@@ -1983,13 +2014,13 @@ function herteken() {
     const opened  = !!(openCluster && openCluster.clusterSprite === cs);
     const pinned  = opened && openClusterFixed; // klik = vastgepind
     const prio = pinned ? 2 : (hovered || opened ? 1 : 0);
-    items.push({ mesh: cs, kind:'cluster', x:(cam.x*.5+.5)*w, y:(-cam.y*.5+.5)*h, z:cam.z, alpha:1, prio });
+    items.push({ mesh: cs, kind:'cluster', x:(cam.x*.5+.5)*w, y:(-cam.y*.5+.5)*h, z:cam.z, alpha:1, prio, scale:1 });
   });
 
   // Hoogste prio eerst plaatsen (vastgepind > hover > auto), dan op camera-z.
   items.sort((a,b) => (b.prio - a.prio) || (a.z - b.z));
 
-  items.forEach(({ mesh, kind, x, y, alpha }) => {
+  items.forEach(({ mesh, kind, x, y, alpha, scale }) => {
     let naam, sub, randHint;
     if (kind === 'cluster') {
       const aantal = mesh.userData.pins ? mesh.userData.pins.length : 0;
@@ -2003,18 +2034,28 @@ function herteken() {
       randHint = mesh.userData.randHint || null;
     }
 
+    // Geschaalde dimensies (auto-pins krimpen op de drempel; rest = 1)
+    const s = scale || 1;
+    const naamFs = Math.max(7, sc.naamFs * s);
+    const subFs  = Math.max(6, sc.subFs  * s);
+    const pillH  = sc.pillH  * s;
+    const rx     = sc.rx     * s;
+    const pad    = sc.pad    * s;
+    const minW   = sc.minW   * s;
+    const maxW   = sc.maxW   * s;
+    const offset = sc.offset * s;
+
     // Probeer rechts, dan links — kies eerste positie zonder overlap
     let placed = null;
     for (const dirRight of [true, false]) {
-      // Probe-meet zonder canvas-state-mutatie
-      lx.font = `${sc.naamFs}px 'DM Serif Display', serif`;
+      lx.font = `${naamFs}px 'DM Serif Display', serif`;
       const naamW = lx.measureText(naam).width;
-      lx.font = `${sc.subFs}px 'DM Mono', monospace`;
+      lx.font = `${subFs}px 'DM Mono', monospace`;
       const subW = sub ? lx.measureText(sub).width : 0;
-      const breedte = Math.max(sc.minW, Math.min(sc.maxW, Math.max(naamW, subW) + sc.pad*2));
-      const ex = dirRight ? x + sc.offset : x - sc.offset - breedte;
-      const ey = y - sc.pillH/2;
-      const vak = { x1: ex - 4, y1: ey - 4, x2: ex + breedte + 4, y2: ey + sc.pillH + 4 };
+      const breedte = Math.max(minW, Math.min(maxW, Math.max(naamW, subW) + pad*2));
+      const ex = dirRight ? x + offset : x - offset - breedte;
+      const ey = y - pillH/2;
+      const vak = { x1: ex - 4, y1: ey - 4, x2: ex + breedte + 4, y2: ey + pillH + 4 };
       if (!labelHitboxen.some(b => !(vak.x2 < b.x1 || vak.x1 > b.x2 || vak.y2 < b.y1 || vak.y1 > b.y2))) {
         placed = { dirRight, vak }; break;
       }
@@ -2024,9 +2065,8 @@ function herteken() {
     const hb = tekenEtiket(lx, {
       x, y, dirRight: placed.dirRight,
       naam, sub, randHint,
-      naamFs: sc.naamFs, subFs: sc.subFs, pillH: sc.pillH,
-      rx: sc.rx, pad: sc.pad, minW: sc.minW, maxW: sc.maxW,
-      alpha, offset: sc.offset,
+      naamFs, subFs, pillH, rx, pad, minW, maxW,
+      alpha, offset,
     });
     labelHitboxen.push({ ...hb, mesh });
   });
@@ -3677,10 +3717,27 @@ function loadCameraState() {
 // ============================================================================
 // START
 // ============================================================================
+function initLabelDrempelSlider() {
+  const inp = document.getElementById('lblDrempelInput');
+  const val = document.getElementById('lblDrempelVal');
+  if (!inp || !val) return;
+  inp.value = LBL_PIN_AUTO_DREMPEL.toFixed(2);
+  val.textContent = LBL_PIN_AUTO_DREMPEL.toFixed(2);
+  inp.addEventListener('input', () => {
+    const v = parseFloat(inp.value);
+    if (!Number.isFinite(v)) return;
+    LBL_PIN_AUTO_DREMPEL = v;
+    val.textContent = v.toFixed(2);
+    localStorage.setItem('bp_label_drempel', String(v));
+    herteken();
+  });
+}
+
 async function start() {
   resize();
   loadCameraState();
   camera.position.set(0, 0, doelZ);
+  initLabelDrempelSlider();
   // Thema laden uit localStorage en toggle-knop synchroniseren
   pasThemaToe(localStorage.getItem('bier_thema') === 'middernacht' ? 'middernacht' : 'schemering');
   // Dev-mode-indicator in/uit
