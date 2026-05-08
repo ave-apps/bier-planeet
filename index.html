@@ -312,7 +312,7 @@
   <!-- LABEL-DREMPEL SLIDER -->
   <div id="lblSlider" title="Vanaf welk zoomniveau auto-labels op pins verschijnen. Lager = dichter inzoomen voordat labels openen.">
     <label for="lblDrempelInput">Labels vanaf</label>
-    <input type="range" id="lblDrempelInput" min="1.05" max="1.6" step="0.01" value="1.18">
+    <input type="range" id="lblDrempelInput" min="1.1" max="4.0" step="0.05" value="1.18">
     <span class="val" id="lblDrempelVal">1.18</span>
   </div>
 
@@ -1792,10 +1792,10 @@ let labelHitboxen = [];
 // (klein op de drempel, groot bij maximaal inzoomen). Hover/vastgepind/rozet/
 // cluster-capsules blijven op vol formaat (scale=1).
 //
-// Slider onderin scherm regelt LBL_PIN_AUTO_DREMPEL (range 1.05–1.6),
+// Slider onderin scherm regelt LBL_PIN_AUTO_DREMPEL (range 1.1–4.0),
 // opgeslagen in localStorage onder bp_label_drempel.
-const LBL_DREMPEL_MIN = 1.05;
-const LBL_DREMPEL_MAX = 1.6;
+const LBL_DREMPEL_MIN = 1.1;
+const LBL_DREMPEL_MAX = 4.0;
 const LBL_DREMPEL_DEFAULT = 1.18;
 const LBL_CZ_MIN = 1.1;             // diepste inzoom — daar volle label-grootte
 const LBL_SCALE_MIN = 0.55;         // grootte op de drempel
